@@ -67,8 +67,9 @@ printed in the terminal window. Options:
   with ×; the original is never changed), with their error bands (95 % confidence or prediction band
   of fits and regressions, mean ± SEM of block averaging, smoothed curves, peak markers) — a fit
   weighted by an error column also shows the data with those error bars. Analyses run while a copy is
-  open are added to it; each copy has its own style and exports like any figure. A result can also be
-  plotted as a new, fully styleable figure.
+  open are added to it; each copy has its own style and exports like any figure. Results with axes of
+  their own (autocorrelation, power spectrum, Q–Q plot, block averaging…) open as a figure of their own
+  data, also in a tab closed with ×.
 - **Several files**: open many files at once (or one after another). Files opened together are drawn
   in the same graph, one colour and legend entry per file; *Combine files* chooses which files, columns
   and error columns to include, or switches to **one panel per file** (shared axes, panel letters
@@ -141,8 +142,9 @@ con un solo pulsante e una barra di avanzamento. Tieni aperta la finestra del te
   *Figura* che si chiude con × (l'originale non cambia mai), con le loro bande d'errore (confidenza o
   predizione al 95% di fit e regressioni, media ± SEM del block averaging, curve filtrate, picchi; un fit
   pesato mostra anche le barre d'errore dei dati). Le analisi eseguite con una copia aperta si aggiungono
-  a quella copia, che ha il proprio stile e si esporta come ogni figura. Un risultato si può anche
-  tracciare come nuova figura.
+  a quella copia, che ha il proprio stile e si esporta come ogni figura. I risultati con assi propri
+  (autocorrelazione, spettro, grafico Q–Q, block averaging…) si aprono come figura dei propri dati, anche
+  loro in una scheda che si chiude con ×.
 - **Più file**: apri più file insieme (o uno dopo l'altro). I file aperti insieme vengono disegnati nello
   stesso grafico, un colore e una voce di legenda per file; *Combina file* sceglie file, colonne ed errori
   da includere, oppure passa a **un pannello per file** (assi condivisi, lettere (a), (b)…, nomi dei file

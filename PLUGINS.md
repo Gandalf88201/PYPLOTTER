@@ -81,7 +81,7 @@ never changed. Running the analysis again replaces its layers on that copy.
 - `ctx.tr(en, it)` → the text in the interface language; `ctx.lang` is `'en'` or `'it'`.
 - `ctx.spec` → the current figure settings (read only).
 
-`r.data(frame, plot=…)` creates a **new data set**: *Plot the result* opens it as a figure that you
+`r.data(frame, plot=…)` creates a **new data set**: *Plot the result* opens it (automatically when the result has no overlay) as a figure in its own tab that you
 can style and export like any file; the "Python script" export then carries the analysis name,
 parameters (`provenance.json`) and references (`REFERENCES.txt`). `plot` uses the same keys as a
 figure: `kind`, `x`, `y`, `y2`, `yerr`, `series`, `text`, `axes`, `style`. Use the label

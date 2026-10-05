@@ -33,33 +33,27 @@ window.Analysis = (() => {
   }
 
   function renderList() {
-    const box = $('#anList');
-    box.innerHTML = '';
+    const sel = $('#anSelect');
+    sel.innerHTML = '';
     CATS.forEach(cat => {
       const items = A.list.plugins.filter(p => p.category === cat);
       if (!items.length) return;
-      const h = document.createElement('div');
-      h.className = 'an-cat';
-      h.textContent = t('an.cat.' + cat);
-      box.append(h);
+      const g = document.createElement('optgroup');
+      g.label = t('an.cat.' + cat);
       items.forEach(p => {
-        const b = document.createElement('button');
-        b.type = 'button';
-        b.className = 'an-item' + (p.id === A.current ? ' active' : '');
-        b.dataset.id = p.id;
-        const name = document.createElement('span');
-        name.textContent = L(p.name);
-        b.append(name);
-        const tag = document.createElement('span');
-        tag.className = 'tag';
-        if (p.missing.length) { tag.classList.add('need'); tag.textContent = '↓ ' + p.missing.join(', '); }
-        else if (p.source === 'user') { tag.classList.add('user'); tag.textContent = p.overrides ? t('an.custom') : t('an.user'); }
-        b.append(tag);
-        b.title = L(p.description);
-        b.onclick = () => renderMain(p.id);
-        box.append(b);
+        const o = document.createElement('option');
+        o.value = p.id;
+        let tag = '';
+        if (p.missing.length) tag = `  (↓ ${p.missing.join(', ')})`;
+        else if (p.source === 'user') tag = `  (${p.overrides ? t('an.custom') : t('an.user')})`;
+        o.textContent = L(p.name) + tag;
+        o.title = L(p.description);
+        g.append(o);
       });
+      sel.append(g);
     });
+    if (A.current) sel.value = A.current;
+    sel.onchange = () => renderMain(sel.value);
     const err = $('#anErrors');
     err.innerHTML = '';
     if (A.list.errors.length) {
@@ -108,8 +102,7 @@ window.Analysis = (() => {
 
   function renderMain(id) {
     A.current = id;
-    $$('#anList .an-item').forEach(b => b.classList.toggle('active', b.dataset.id === id));
-    scrollToActive();
+    $('#anSelect').value = id;
     const p = plugin();
     const main = $('#anMain');
     main.innerHTML = '';
@@ -175,23 +168,12 @@ window.Analysis = (() => {
   // copy of the figure, after plotting a result and coming back, or after looking at another analysis.
   const resultKey = (id, dsId) => `${id}|${dsId}`;
   function resultFor(id) {
-    const ids = [state.dataset, ...state.history.map(h => h.dataset)].filter(Boolean).map(d => d.dataset_id);
+    const ids = [state.dataset, state.mainDataset, ...state.history.map(h => h.dataset)].filter(Boolean).map(d => d.dataset_id);
     for (const dsId of ids) if (A.results[resultKey(id, dsId)]) return A.results[resultKey(id, dsId)];
     return null;
   }
   function forget(id) {
     Object.keys(A.results).forEach(k => { if (k.startsWith(id + '|')) delete A.results[k]; });
-  }
-
-  // The list scrolls inside its own box: keep the chosen analysis in view (below the sticky heading).
-  function scrollToActive() {
-    const box = $('#anList');
-    const b = box && $('.an-item.active', box);
-    if (!b) return;
-    const head = $('.an-cat', box);
-    const top = b.offsetTop - (head ? head.offsetHeight : 0);
-    if (top < box.scrollTop) box.scrollTop = top;
-    else if (b.offsetTop + b.offsetHeight > box.scrollTop + box.clientHeight) box.scrollTop = b.offsetTop + b.offsetHeight - box.clientHeight;
   }
 
   function plugin() { return A.list.plugins.find(p => p.id === A.current); }
@@ -290,7 +272,10 @@ window.Analysis = (() => {
         spec: specForServer(), lang: state.lang });
       A.results[resultKey(p.id, res.analysed_dataset)] = res;
       renderResult(res);
+      // Curves on the data's axes go on a copy of the figure; results with axes of their own
+      // (ACF, spectrum, Q–Q…) open as a figure of their own. The original figure never changes.
       if (res.overlays.length) showOnCopy(res);
+      else if (res.dataset) showResult(res);
     } catch (e) {
       if (e.code === 'missing_modules') {
         if (await ensureModules(e.data.modules)) { await load(true); renderList(); return runAnalysis(btn); }
@@ -376,6 +361,9 @@ window.Analysis = (() => {
 
   // The copy of the figure that shows this result, if one is open.
   const copyOf = res => state.views.find(v => v.runs.some(r => r.run === res.run_id));
+  // The figure of this result's own data, if one is open.
+  const resultViewOf = res => state.views.find(v => v.dataset && v.result.run === res.run_id);
+  const newId = () => Math.random().toString(16).slice(2, 10);
 
   function renderResult(res) {
     const box = $('#anResults');
@@ -395,9 +383,10 @@ window.Analysis = (() => {
     if (res.dataset) {
       const plot = document.createElement('button');
       plot.className = res.overlays.length ? 'btn small' : 'btn small primary';
-      plot.textContent = t('an.plot');
+      const rv = resultViewOf(res);
+      plot.textContent = rv ? t('an.goto_plot') : t('an.plot');
       plot.title = t('an.plot_hint', { rows: res.dataset.rows.toLocaleString(LOCALE()), cols: res.dataset.columns.length });
-      plot.onclick = () => plotResult(res);
+      plot.onclick = () => (rv && state.views.includes(rv) ? showView(rv.id) : showResult(res));
       bar.append(plot);
     }
     if (bar.children.length) box.append(bar);
@@ -444,9 +433,9 @@ window.Analysis = (() => {
       toast(t('ov.other_data'), true);
       return;
     }
-    if (!res.run_id) res.run_id = Math.random().toString(16).slice(2, 10);
+    if (!res.run_id) res.run_id = newId();
     const v = state.views.find(x => x.id === state.view)
-      || [...state.views].reverse().find(x => x.runs.some(r => r.id === res.plugin.id))
+      || [...state.views].reverse().find(x => !x.dataset && x.runs.some(r => r.id === res.plugin.id))
       || newView();
     const s = v.spec;
     s.overlays = (s.overlays || []).filter(o => o.analysis_run !== res.plugin.id);
@@ -480,50 +469,37 @@ window.Analysis = (() => {
     show();
   }
 
-  function plotResult(res) {
-    const views = stashViews();
-    state.history.push({ dataset: state.dataset, spec: clone(state.spec), file: state.file, views });
-    applyDataset(res.dataset);
+  // Open the result's own data as a figure in its own tab (styled like the original figure); running
+  // the same analysis on the same data again updates that tab.
+  function showResult(res) {
+    if (!res.run_id) res.run_id = newId();
     const pl = res.plot || {};
-    const s = state.spec;
+    const s = clone(state.view ? state.mainSpec : state.spec);
+    resetDataSpec(res.dataset.mapping || {}, s);
+    s.layout = { ...(s.layout || {}), mode: 'single' };
     ['kind', 'x', 'y', 'y2', 'hue', 'z', 'xerr', 'yerr'].forEach(k => { if (pl[k] !== undefined) s[k] = clone(pl[k]); });
     s.series = clone(pl.series || {});
     s.overlays = (pl.overlays || []).map((o, i) => stripOverlay(o, res, s, i));
     ['text', 'axes', 'style', 'legend'].forEach(k => { if (pl[k]) s[k] = merge(s[k], pl[k]); });
-    syncControls();
-    buildKindGallery();
-    buildKindOptions();
-    buildMapping(true);
-    buildSeries();
-    updateFigInfo();
-    setTab('figure');
+    let v = state.views.find(x => x.dataset && x.result.id === res.plugin.id && x.result.base === res.analysed_dataset);
+    if (v) Object.assign(v, { spec: s, dataset: res.dataset, runs: [] });
+    else {
+      v = { id: newId(), spec: s, runs: [], dataset: res.dataset, result: { id: res.plugin.id, base: res.analysed_dataset } };
+      state.views.push(v);
+    }
+    v.result.name = res.plugin.name;
+    v.result.run = res.run_id;
+    showView(v.id, true);
+    viewsChanged();
   }
 
-  function back() {
-    const prev = state.history.pop();
-    if (!prev) return;
-    const stack = state.history.slice();
-    stashViews();
-    applyDataset(prev.dataset, true);
-    state.history = stack;
-    state.spec = prev.spec;
-    state.file = prev.file;
-    state.views = prev.views || [];
-    renderViewTabs();
-    syncControls();
-    buildKindGallery();
-    buildKindOptions();
-    buildMapping(true);
-    buildSeries();
-    updateDerived();
-    scheduleRender(0);
-  }
+  function back() { showView(null); }
 
   function updateDerived() {
     const derived = !!(state.dataset && state.dataset.source && state.dataset.source.analysis);
     $('#derivedBox').hidden = !derived;
     if (derived) $('#derivedName').textContent = t('an.derived', { name: state.dataset.name });
-    $('#btnBack').hidden = !state.history.length;
+    $('#btnBack').hidden = !state.view;
   }
 
   // ---------------------------------------------------------------- plugin files

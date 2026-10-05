@@ -14,7 +14,7 @@ const state = {
   meta: null, status: null, defaults: null, spec: null,
   file: null, dataset: null, source: null, recommend: [], history: [],
   renderSeq: 0, renderCtrl: null, renderTimer: null, fitDpi: 96, tab: 'figure', busyJob: null,
-  views: [], view: null, mainSpec: null,   // copies of the figure with analyses on them (see "figure copies")
+  views: [], view: null, mainSpec: null, mainDataset: null, mainRecommend: null,   // see "figure copies"
 };
 
 // Number formatting follows the interface language (1.161 in Italian, 1,161 in English).
@@ -595,7 +595,7 @@ function buildSeries() {
   box.innerHTML = '';
   const s = state.spec;
   const cols = [...s.y, ...(state.meta.twin_kinds.includes(s.kind) ? s.y2 : [])];
-  const extraRows = (window.Files && (s.layout || {}).mode !== 'panels') ? Files.extraSpec().flatMap(e =>
+  const extraRows = (window.Files && !viewDataset() && (s.layout || {}).mode !== 'panels') ? Files.extraSpec().flatMap(e =>
     e.y.map(c => ({ key: `${e.id}:${c}`, title: `${e.name} · ${c}` }))) : [];
   if ((!cols.length && !extraRows.length) || s.hue) {
     box.innerHTML = `<p class="small muted">${t('series.empty')}</p>`;
@@ -714,7 +714,7 @@ function specForServer() {
   const s = clone(state.spec);
   s.lang = state.lang;
   s.name = state.dataset ? state.dataset.name : '';
-  s.extra = window.Files ? Files.extraSpec() : [];
+  s.extra = (window.Files && !viewDataset()) ? Files.extraSpec() : [];
   return s;
 }
 
@@ -767,8 +767,7 @@ async function renderNow() {
 }
 
 // ------------------------------------------------------------------ data loading
-function resetDataSpec(mapping) {
-  const s = state.spec;
+function resetDataSpec(mapping, s = state.spec) {
   Object.assign(s, { kind: mapping.kind || 'line', x: mapping.x, y: mapping.y || [], y2: [], hue: null, z: mapping.z || null,
     xerr: mapping.xerr || null, yerr: mapping.yerr || null, series: {}, overlays: [] });
   ['title', 'xlabel', 'ylabel', 'y2label', 'zlabel'].forEach(k => { s.text[k] = ''; });
@@ -1000,6 +999,10 @@ async function openSample(name) {
 }
 
 async function reopenSource() {
+  // After a restart result figures point to data the service no longer has: close them.
+  if (viewDataset()) showView(null);
+  state.views = state.views.filter(v => !v.dataset);
+  renderViewTabs();
   const src = state.source;
   if (!src) return;
   try {
@@ -1096,13 +1099,21 @@ function setTab(tab) {
 }
 
 // ------------------------------------------------------------------ figure copies
-// Analyses are drawn on a copy of the figure, never on the original. Each copy has its own spec
-// (layers, style, mapping) and its own tab, closed with ×. While a copy is shown, state.spec is the
-// copy's spec and the original one waits in state.mainSpec.
+// Analyses never change the original figure. Curves that share its axes (fits, bands, smoothing…)
+// are drawn on a copy of it; results with axes of their own (ACF, spectrum, Q–Q…) open as a figure
+// of their own data. Each has its own spec and a tab closed with ×. While one is shown, state.spec
+// (and, for a result, state.dataset) are its own; the original ones wait in state.main*.
 const localName = obj => (obj && typeof obj === 'object') ? (obj[state.lang] || obj.en || '') : (obj ?? '');
 
 function viewTitle(v) {
-  return `${t('tab.figure')} + ${v.runs.map(r => localName(r.name)).join(' + ')}`;
+  const names = v.runs.map(r => localName(r.name));
+  return v.dataset ? [localName(v.result.name), ...names].join(' + ') : `${t('tab.figure')} + ${names.join(' + ')}`;
+}
+
+// The data set of the result figure on screen, if any (copies of the figure use the original data).
+function viewDataset() {
+  const v = state.view && state.views.find(x => x.id === state.view);
+  return (v && v.dataset) || null;
 }
 
 function renderViewTabs() {
@@ -1140,15 +1151,27 @@ function refreshSpecUI() {
   updateFigInfo();
 }
 
-// Show the original figure (id null) or one of its copies.
-function showView(id) {
+// Show the original figure (id null), one of its copies or a result figure.
+function showView(id, force = false) {
   const v = id ? state.views.find(x => x.id === id) : null;
-  if ((v ? v.id : null) !== state.view) {
-    if (!state.view) state.mainSpec = state.spec;
+  if (force || (v ? v.id : null) !== state.view) {
+    if (!state.view) {
+      state.mainSpec = state.spec;
+      state.mainDataset = state.dataset;
+      state.mainRecommend = state.recommend;
+    }
+    const before = state.dataset;
     state.view = v ? v.id : null;
     state.spec = v ? v.spec : state.mainSpec;
-    if (!v) state.mainSpec = null;
+    state.dataset = (v && v.dataset) || state.mainDataset;
+    state.recommend = (v && v.dataset) ? (v.dataset.recommend || []) : state.mainRecommend;
+    if (!v) state.mainSpec = state.mainDataset = state.mainRecommend = null;
     refreshSpecUI();
+    if (force || state.dataset !== before) {
+      buildTable();
+      updateHints();
+      if (window.Analysis) { window.Analysis.updateDerived(); window.Analysis.show(); }
+    }
   }
   setTab('figure');
 }
@@ -1176,7 +1199,9 @@ function stashViews() {
   const saved = state.views;
   if (state.view) {
     state.spec = state.mainSpec;
-    state.mainSpec = null;
+    state.dataset = state.mainDataset;
+    state.recommend = state.mainRecommend;
+    state.mainSpec = state.mainDataset = state.mainRecommend = null;
     state.view = null;
   }
   state.views = [];

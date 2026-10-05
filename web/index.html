@@ -80,7 +80,7 @@
       </div>
       <div class="derived" id="derivedBox" hidden>
         <span class="small" id="derivedName"></span>
-        <button class="btn small" id="btnBack" data-i18n="an.back">← Back to the source data</button>
+        <button class="btn small" id="btnBack" data-i18n="an.back">← Back to the original figure</button>
       </div>
       <div class="field" id="tableField" hidden>
         <label for="tableSelect" data-i18n="data.table">Table / sheet / dataset</label>
@@ -162,7 +162,7 @@
       <summary data-i18n="tab.analysis">Analysis</summary>
       <p class="small muted" id="anEmpty" data-i18n="an.need_data">Open data to analyse it.</p>
       <div id="anBody" hidden>
-        <div class="an-list" id="anList"></div>
+        <div class="field"><label for="anSelect" data-i18n="an.choose">Analysis</label><select id="anSelect"></select></div>
         <div id="anMain"></div>
         <div id="anErrors"></div>
         <div class="an-tools">
