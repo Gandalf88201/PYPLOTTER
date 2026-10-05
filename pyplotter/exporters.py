@@ -28,10 +28,12 @@ from plotting import render
 HERE = Path(__file__).resolve().parent
 spec = json.loads((HERE / 'spec.json').read_text(encoding='utf-8'))
 df = pd.read_csv(HERE / 'data.csv', parse_dates={dates!r})
+# analysis results drawn over the data (fits with confidence bands, smoothing, …)
+overlays = {{o['id']: pd.read_csv(HERE / o['file']) for o in spec.get('overlays', []) if o.get('file')}}
 
 for fmt in {formats!r}:
     out = HERE / f'figure.{{fmt}}'
-    out.write_bytes(render(df, spec, fmt))
+    out.write_bytes(render(df, spec, fmt, overlay_data=overlays))
     print('wrote', out.name)
 '''
 
@@ -65,7 +67,7 @@ def references_text(modules, spec, extra=()):
     return '\n'.join(lines) + '\n'
 
 
-def script_bundle(df, spec, name='figure', modules=(), extra_refs=(), source=None):
+def script_bundle(df, spec, name='figure', modules=(), extra_refs=(), source=None, overlay_data=None):
     """ZIP with data.csv, spec.json, plotting.py, catalog.py, make_figure.py and REFERENCES.txt."""
     spec = plotting.normalize_spec(spec)
     cols = used_columns(spec)
@@ -73,9 +75,23 @@ def script_bundle(df, spec, name='figure', modules=(), extra_refs=(), source=Non
         cols = list(df.columns)
     data = df[cols] if cols else df
     dates = [c for c in data.columns if pd.api.types.is_datetime64_any_dtype(data[c])]
+    overlay_files = {}
+    clean = []
+    for k, o in enumerate(spec.get('overlays') or []):
+        o = {key: v for key, v in o.items() if key not in ('source', 'dataset', 'dataset_id', 'references')}
+        frame = (overlay_data or {}).get(o.get('id'))
+        if frame is not None:
+            fname = f'overlay_{k + 1}.csv'
+            cols = [c for c in dict.fromkeys([o.get('x'), o.get('y'), o.get('lo'), o.get('hi')]) if c]
+            overlay_files[fname] = frame[cols].to_csv(index=False)
+            o['file'] = fname
+        clean.append(o)
+    spec = dict(spec, overlays=clean)
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
         zf.writestr(f'{name}/data.csv', data.to_csv(index=False))
+        for fname, text in overlay_files.items():
+            zf.writestr(f'{name}/{fname}', text)
         zf.writestr(f'{name}/spec.json', json.dumps(spec, indent=2, ensure_ascii=False))
         zf.writestr(f'{name}/plotting.py', (HERE / 'plotting.py').read_text(encoding='utf-8'))
         zf.writestr(f'{name}/catalog.py', (HERE / 'catalog.py').read_text(encoding='utf-8'))
@@ -92,7 +108,7 @@ PLOTLY_KINDS = {'line', 'scatter', 'step', 'area', 'errorbar', 'regression', 'ba
                 'violin', 'heatmap', 'corr', 'contour', 'pie', 'kde', 'ecdf', 'stem', 'polar', 'hexbin', 'hist2d'}
 
 
-def plotly_html(df, spec):
+def plotly_html(df, spec, overlay_data=None):
     import plotly.graph_objects as go
 
     spec = plotting.normalize_spec(spec)
@@ -200,6 +216,26 @@ def plotly_html(df, spec):
         table, _ = plotting._aggregate(d, ycols[:1])
         fig.add_trace(go.Pie(labels=[str(c) for c in table.index], values=table.iloc[:, 0].to_numpy(),
                              marker={'colors': colors}, sort=False))
+
+    for o in spec.get('overlays') or []:
+        frame = (overlay_data or {}).get(o.get('id'))
+        if frame is None and not o.get('dataset_id'):
+            frame = df
+        if frame is None or o.get('hidden') or o.get('x') not in frame or o.get('y') not in frame:
+            continue
+        sub = frame.sort_values(o['x'])
+        st = o.get('style') or {}
+        c = st.get('color') or color(f'overlay:{o.get("id")}')
+        name = o.get('label') or o['y']
+        if o.get('lo') in sub and o.get('hi') in sub and o.get('band', True):
+            fig.add_trace(go.Scatter(x=sub[o['x']], y=sub[o['hi']], mode='lines', line={'width': 0}, showlegend=False,
+                                     hoverinfo='skip'))
+            fig.add_trace(go.Scatter(x=sub[o['x']], y=sub[o['lo']], mode='lines', line={'width': 0}, fill='tonexty',
+                                     fillcolor=c, opacity=0.25, name=f'{name} ({o.get("band_label") or "95% CI"})'))
+        marker_only = st.get('linestyle') in ('none', '')
+        fig.add_trace(go.Scatter(x=sub[o['x']], y=sub[o['y']], name=name, mode='markers' if marker_only else 'lines',
+                                 line={'color': c, 'dash': 'dash' if st.get('linestyle') == '--' else None},
+                                 marker={'color': c, 'size': 9, 'symbol': 'triangle-down' if st.get('marker') == 'v' else 'circle'}))
 
     t, a = spec['text'], spec['axes']
     font = t['font'] or 'Arial, Helvetica, sans-serif'

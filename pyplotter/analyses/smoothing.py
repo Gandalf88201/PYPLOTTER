@@ -61,6 +61,8 @@ def run(df, p, ctx):
     if deriv == 0:
         r.value(ctx.tr('RMS of removed noise', 'RMS del rumore rimosso'), float(np.sqrt(np.mean((y - out) ** 2))))
     data = pd.DataFrame({xname: x, p['y']: y, label: out})
+    if deriv == 0:
+        r.overlay(data, xname, label, label=f'{label} ({p["method"]}, {w})')
     ys = [p['y'], label] if deriv == 0 else [label]
     r.data(data, name=f'{label} · {p["y"]}', plot={'kind': 'line', 'x': xname, 'y': ys,
                                                    'series': {p['y']: {'alpha': 0.35}}})

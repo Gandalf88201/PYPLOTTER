@@ -26,7 +26,7 @@ from .modules import MissingModules, ModuleManager, clean_appledouble
 ROOT = Path(__file__).resolve().parent.parent
 WEB = ROOT / 'web'
 MAX_JSON = 32 * 1024 * 1024
-MAX_DATASETS = 12
+MAX_DATASETS = 40
 PREVIEW_ROWS = 200
 CHUNK = 1 << 20
 MIME = {'.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
@@ -79,6 +79,8 @@ class App:
         self.files = self._load_files()
         self.restart_hook = None
         self._plugins = None
+        self._overlay_alias = {}
+        self._extra_refs = []
 
     # -------------------------------------------------------------- uploaded files
     def _files_index(self):
@@ -203,9 +205,12 @@ class App:
             return self.sample(str(source['sample']))
         if source.get('analysis'):
             parent = self.reopen(source.get('parent'), depth + 1)
-            return self.run_analysis({'dataset_id': parent['dataset_id'], 'id': source['analysis'],
-                                      'params': source.get('params') or {}, 'spec': source.get('spec') or {},
-                                      'lang': source.get('lang', 'en')})['dataset']
+            out = self.run_analysis({'dataset_id': parent['dataset_id'], 'id': source['analysis'],
+                                     'params': source.get('params') or {}, 'spec': source.get('spec') or {},
+                                     'lang': source.get('lang', 'en')})
+            if source.get('overlay') is not None:
+                return out['overlays'][int(source['overlay'])]['dataset']
+            return out['dataset']
         return self.open_table(source)
 
     # -------------------------------------------------------------- analyses & plugins
@@ -242,13 +247,56 @@ class App:
         out = {'plugin': {'id': plugin['id'], 'name': plugin['name'], 'source': plugin['source'], 'file': plugin['file']},
                'params': values, 'summary': res.summary, 'tables': res.tables, 'texts': res.texts,
                'references': list(dict.fromkeys(res.refs)), 'dataset': None, 'plot': res.plot}
+        from .readers import tidy
+        source = {'analysis': plugin['id'], 'params': values, 'parent': ds['source'], 'spec': spec, 'lang': lang}
+        refs = ds.get('references', []) + out['references']
+        title = res.name or plugin['name'][lang]
+        out['overlays'] = []
+        for k, ov in enumerate(res.overlays):
+            reg = self._register(ov['frame'], f'{ds["name"]} › {title} · {ov["label"]}', {**source, 'overlay': k}, {},
+                                 references=refs)
+            reg.pop('preview', None)
+            out['overlays'].append({
+                'dataset': reg, 'source': {**source, 'overlay': k}, 'dataset_id': reg['dataset_id'],
+                'x': ov['x'], 'y': ov['y'], 'lo': ov['lo'], 'hi': ov['hi'], 'label': ov['label'],
+                'band_label': ov['band_label'], 'style': ov['style'], 'band': bool(ov['lo'] and ov['hi']),
+                'id': secrets.token_hex(5), 'references': out['references']})
+        out['analysed_dataset'] = str(body.get('dataset_id'))
         if res.frame is not None and len(res.frame.columns):
-            from .readers import tidy
-            name = f'{ds["name"]} › {res.name or plugin["name"][lang]}'
-            source = {'analysis': plugin['id'], 'params': values, 'parent': ds['source'], 'spec': spec, 'lang': lang}
-            out['dataset'] = self._register(tidy(res.frame.copy()), name, source, {},
-                                            references=ds.get('references', []) + out['references'])
+            name = f'{ds["name"]} › {title}'
+            out['dataset'] = self._register(tidy(res.frame.copy()), name, source, {}, references=refs)
+            plot = dict(res.plot or {})
+            if plot.get('overlays'):         # {'ref': k} → the k-th overlay of this result
+                resolved = []
+                for o in plot['overlays']:
+                    if isinstance(o, dict) and 'ref' in o and int(o['ref']) < len(out['overlays']):
+                        base = {k: v for k, v in out['overlays'][int(o['ref'])].items() if k != 'dataset'}
+                        resolved.append({**base, **{k: v for k, v in o.items() if k != 'ref'}})
+                plot['overlays'] = resolved
+            out['plot'] = plot
         return out
+
+    def overlay_data(self, spec):
+        """DataFrames of the overlays in a figure spec; rebuilt from their source after a restart."""
+        data = {}
+        for o in (spec.get('overlays') or []):
+            if not isinstance(o, dict) or not o.get('dataset_id'):
+                continue
+            did = self._overlay_alias.get(o['dataset_id'], o['dataset_id'])
+            ds = self.datasets.get(did)
+            if ds is None and o.get('source'):
+                try:
+                    ds_new = self.reopen(o['source'])
+                    self._overlay_alias[o['dataset_id']] = ds_new['dataset_id']
+                    ds = self.datasets.get(ds_new['dataset_id'])
+                except Exception:
+                    ds = None
+            if ds is not None:
+                data[o.get('id')] = ds['df']
+                for r in ds.get('references', []):
+                    if r not in self._extra_refs:
+                        self._extra_refs.append(r)
+        return data
 
     def plugin_action(self, action, body):
         from .plugins import PluginError
@@ -290,14 +338,17 @@ class App:
         fmt = export or 'png'
         try:
             with self.render_lock:
+                self._extra_refs = []
+                overlays = self.overlay_data(spec)
                 if fmt == 'html':
-                    return exporters.plotly_html(ds['df'], spec), catalog.EXPORT_FORMATS['html']['mime']
+                    return exporters.plotly_html(ds['df'], spec, overlays), catalog.EXPORT_FORMATS['html']['mime']
                 if fmt == 'py':
                     data = exporters.script_bundle(ds['df'], spec, 'figure', self.modules.modules,
-                                                   extra_refs=ds.get('references', []), source=ds['source'])
+                                                   extra_refs=ds.get('references', []) + self._extra_refs,
+                                                   source=ds['source'], overlay_data=overlays)
                     return data, catalog.EXPORT_FORMATS['py']['mime']
                 dpi = body.get('dpi') if not export else (body.get('dpi') or None)
-                return plotting.render(ds['df'], spec, fmt, dpi), catalog.EXPORT_FORMATS[fmt]['mime']
+                return plotting.render(ds['df'], spec, fmt, dpi, overlays), catalog.EXPORT_FORMATS[fmt]['mime']
         except plotting.SpecError as exc:
             raise ApiError(str(exc), 422, 'spec')
         except (MissingModules, ApiError):

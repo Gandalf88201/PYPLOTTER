@@ -38,6 +38,7 @@ class Result:
         self.lang = lang
         self.summary, self.tables, self.texts, self.refs = [], [], [], []
         self.frame, self.plot, self.name = None, None, None
+        self.overlays = []
 
     def value(self, label, value, error=None, unit=''):
         """One line of the summary table: label, value (± error) and unit."""
@@ -68,6 +69,22 @@ class Result:
             frame = pd.DataFrame(frame)
         self.frame, self.plot, self.name = frame.reset_index(drop=True), plot or {}, name
         return self
+
+    def overlay(self, frame, x, y, lo=None, hi=None, label=None, band_label=None, style=None):
+        """A layer that can be drawn over the original figure: curve x→y and optional band lo…hi.
+
+        Use the same x units as the analysed data (e.g. the fitted curve on a fine grid with its
+        95 % confidence band). style: {'color', 'linestyle', 'linewidth', 'marker', 'band_alpha'}.
+        Returns the overlay index, which a data plot can use as {'overlays': [{'ref': index}]}.
+        """
+        if not isinstance(frame, pd.DataFrame):
+            frame = pd.DataFrame(frame)
+        for c in (x, y, lo, hi):
+            if c is not None and c not in frame.columns:
+                raise PluginError(f'Overlay column not found: {c}')
+        self.overlays.append({'frame': frame.reset_index(drop=True), 'x': x, 'y': y, 'lo': lo, 'hi': hi,
+                              'label': str(label or y), 'band_label': band_label, 'style': dict(style or {})})
+        return len(self.overlays) - 1
 
     def cite(self, *refs):
         self.refs.extend(str(r) for r in refs if r)

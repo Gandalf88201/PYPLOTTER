@@ -85,6 +85,50 @@ class TestBuiltins(unittest.TestCase):
         g = next(s['value'] for s in res.summary if 'inefficiency' in s['label'])
         self.assertLess(g, 1.6)          # uncorrelated data: g ≈ 1
 
+    def test_fit_overlay_band_and_render(self):
+        import io as _io
+        import zipfile as _zip
+        import numpy as np
+        import pandas as pd
+        from pyplotter import exporters
+        from pyplotter.modules import load_registry
+        rng = np.random.default_rng(3)
+        x = np.linspace(0, 40, 60)
+        sig = np.full(x.size, 0.03)
+        df = pd.DataFrame({'t': x, 's': 2.0 * np.exp(-x / 9.0) + 0.1 + rng.normal(0, 0.03, x.size), 'e': sig})
+        _, _, res = self.pm.run('fit_curve', df, {'x': 't', 'y': 's', 'sigma': 'e', 'model': 'exp_decay'})
+        ov = res.overlays[0]
+        curve = ov['frame']
+        truth = 2.0 * np.exp(-curve['t'] / 9.0) + 0.1
+        inside = ((curve[ov['lo']] <= truth) & (truth <= curve[ov['hi']])).mean()
+        self.assertGreater(inside, 0.8)              # the 95 % band covers the true curve
+        self.assertEqual(res.plot['kind'], 'errorbar')
+        spec = {'kind': 'errorbar', 'x': 't', 'y': ['s'], 'yerr': 'e',
+                'overlays': [{'id': 'o1', 'dataset_id': 'd', 'x': 't', 'y': 'fit', 'lo': ov['lo'], 'hi': ov['hi'],
+                              'label': 'fit', 'band_label': '95% CI'}]}
+        png = plotting.render(df, spec, 'png', dpi=50, overlay_data={'o1': curve})
+        self.assertTrue(png.startswith(b'\x89PNG'))
+        svg = plotting.render(df, spec, 'svg', overlay_data={'o1': curve}).decode()
+        self.assertIn('95% CI', svg)
+        # missing overlay data is skipped, not an error
+        self.assertTrue(plotting.render(df, spec, 'png', dpi=40).startswith(b'\x89PNG'))
+        data = exporters.script_bundle(df, spec, 'fig', load_registry(), overlay_data={'o1': curve})
+        with tempfile.TemporaryDirectory() as tmp:
+            _zip.ZipFile(_io.BytesIO(data)).extractall(tmp)
+            self.assertTrue((Path(tmp) / 'fig' / 'overlay_1.csv').exists())
+            run = subprocess.run([sys.executable, 'make_figure.py'], cwd=Path(tmp) / 'fig', capture_output=True, text=True)
+            self.assertEqual(run.returncode, 0, run.stderr)
+
+    def test_regression_and_block_overlays(self):
+        _, _, res = self.pm.run('regression', samples.make('cloud'), {'y': 'y', 'predictors': ['x']})
+        self.assertEqual(len(res.overlays), 2)       # confidence and prediction bands
+        ci, pi = res.overlays
+        width_ci = (ci['frame'][ci['hi']] - ci['frame'][ci['lo']]).mean()
+        width_pi = (pi['frame'][pi['hi']] - pi['frame'][pi['lo']]).mean()
+        self.assertLess(width_ci, width_pi)
+        _, _, res = self.pm.run('block_average', samples.make('spectra'), {'y': 'Sample A', 'x': 'Wavelength (nm)'})
+        self.assertEqual(res.overlays[0]['x'], 'Wavelength (nm)')
+
     def test_role_defaults(self):
         df = samples.make('kinetics')
         spec = {'x': 'Time (min)', 'y': ['Concentration (mM)'], 'yerr': 'Std. dev. (mM)'}

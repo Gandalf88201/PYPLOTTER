@@ -40,6 +40,7 @@ scrive un `REFERENCES.txt` con esattamente i riferimenti necessari.
 ## Methods used in PyPlotter's own code / Metodi usati nel codice di PyPlotter
 
 - Density curves (KDE): Gaussian kernel with Silverman's rule-of-thumb bandwidth — Silverman, B. W. *Density Estimation for Statistics and Data Analysis*. Chapman & Hall (1986).
+- Confidence and prediction bands of non-linear fits: first-order (delta-method) propagation of the parameter covariance, var = J·C·Jᵀ (J by central differences), with Student's t quantile; prediction bands add the residual (or measurement) variance. See e.g. Seber, G. A. F. & Wild, C. J. *Nonlinear Regression*. Wiley (1989).
 - Curve fits: ordinary least squares (`numpy.polyfit`); exponential, logarithmic and power-law models are fitted as linear models of the transformed variables, and R² is computed on the original scale.
 - JCAMP-DX reader (AFFN form): McDonald, R. S. & Wilks, P. A. JCAMP-DX: A Standard Form for Exchange of Infrared Spectra in Computer Readable Form. *Applied Spectroscopy* 42(1), 151–162 (1988).
 

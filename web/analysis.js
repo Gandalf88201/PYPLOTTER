@@ -128,7 +128,12 @@ window.Analysis = (() => {
     run.className = 'btn primary';
     run.textContent = t('an.run');
     run.onclick = () => runAnalysis(run);
-    actions.append(run);
+    const rst = document.createElement('button');
+    rst.className = 'btn';
+    rst.textContent = t('an.reset');
+    rst.title = t('an.reset_hint');
+    rst.onclick = () => { A.result = null; delete A.params[paramKey(id)]; renderMain(id); };
+    actions.append(run, rst);
     if (p.missing.length) {
       const note = document.createElement('span');
       note.className = 'small muted';
@@ -320,17 +325,29 @@ window.Analysis = (() => {
     const box = $('#anResults');
     if (!box) return;
     box.innerHTML = '';
-    if (res.dataset) {
+    if (res.dataset || res.overlays.length) {
       const bar = document.createElement('div');
       bar.className = 'an-actions';
-      const plot = document.createElement('button');
-      plot.className = 'btn primary';
-      plot.textContent = t('an.plot');
-      plot.onclick = () => plotResult(res);
+      if (res.overlays.length) {
+        const ov = document.createElement('button');
+        ov.className = 'btn primary';
+        ov.textContent = t('an.overlay');
+        ov.title = t('an.overlay_hint');
+        ov.onclick = () => overlayResult(res);
+        bar.append(ov);
+      }
+      if (res.dataset) {
+        const plot = document.createElement('button');
+        plot.className = res.overlays.length ? 'btn' : 'btn primary';
+        plot.textContent = t('an.plot');
+        plot.title = t('an.plot_hint', { rows: res.dataset.rows.toLocaleString(), cols: res.dataset.columns.length });
+        plot.onclick = () => plotResult(res);
+        bar.append(plot);
+      }
       const note = document.createElement('span');
       note.className = 'small muted';
-      note.textContent = t('an.plot_hint', { rows: res.dataset.rows.toLocaleString(), cols: res.dataset.columns.length });
-      bar.append(plot, note);
+      note.textContent = res.overlays.length ? t('an.overlay_hint') : t('an.plot_hint', { rows: res.dataset.rows.toLocaleString(), cols: res.dataset.columns.length });
+      bar.append(note);
       box.append(bar);
     }
     res.texts.forEach(text => {
@@ -354,6 +371,48 @@ window.Analysis = (() => {
     }
   }
 
+  // Overlay descriptor for the figure spec; gets a fixed colour so the panel shows the real one.
+  const stripOverlay = (o, res, index) => {
+    const { dataset, ...rest } = o;
+    const out = { ...clone(rest), id: Math.random().toString(16).slice(2, 12),
+      source_name: `${L(res.plugin.name)} · ${state.dataset ? state.dataset.name : ''}` };
+    out.style = out.style || {};
+    const pal = state.meta.palettes[state.spec.style.palette] || [];
+    if (!out.style.color && pal.length) out.style.color = pal[(state.spec.y.length + index) % pal.length];
+    return out;
+  };
+
+  function overlayResult(res) {
+    if (!state.dataset || state.dataset.dataset_id !== res.analysed_dataset) {
+      toast(t('ov.other_data'), true);
+      return;
+    }
+    const s = state.spec;
+    s.overlays = s.overlays || [];
+    res.overlays.forEach(o => s.overlays.push(stripOverlay(o, res, s.overlays.length)));
+    // A fit weighted by an error column: show the data with those error bars.
+    const sigma = res.params && (res.params.sigma || res.params.yerr);
+    if (sigma && !s.yerr && ['line', 'scatter', 'errorbar'].includes(s.kind)) {
+      s.kind = 'errorbar';
+      s.yerr = sigma;
+      s.series = s.series || {};
+      s.y.forEach(c => { s.series[c] = { ...(s.series[c] || {}), linestyle: 'none', marker: (s.series[c] || {}).marker || 'o' }; });
+      toast(t('ov.errors_used', { col: sigma }));
+    }
+    buildKindGallery();
+    buildKindOptions();
+    buildMapping(false);
+    buildSeries();
+    setTab('figure');
+  }
+
+  function reset() {
+    A.result = null;
+    if (A.current && state.dataset) delete A.params[paramKey(A.current)];
+    if (A.current && A.list && state.dataset && state.tab === 'analysis') renderMain(A.current);
+    else { A.current = null; const m = $('#anMain'); if (m) m.innerHTML = `<p class="muted">${t('an.pick')}</p>`; }
+  }
+
   function plotResult(res) {
     state.history.push({ dataset: state.dataset, spec: clone(state.spec), file: state.file });
     applyDataset(res.dataset);
@@ -361,6 +420,7 @@ window.Analysis = (() => {
     const s = state.spec;
     ['kind', 'x', 'y', 'y2', 'hue', 'z', 'xerr', 'yerr'].forEach(k => { if (pl[k] !== undefined) s[k] = clone(pl[k]); });
     s.series = clone(pl.series || {});
+    s.overlays = (pl.overlays || []).map((o, i) => stripOverlay(o, res, i));
     ['text', 'axes', 'style', 'legend'].forEach(k => { if (pl[k]) s[k] = merge(s[k], pl[k]); });
     syncControls();
     buildKindGallery();
@@ -484,5 +544,5 @@ window.Analysis = (() => {
   }
   bind();
 
-  return { show, updateDerived, load, renderList, relabel: () => { if (A.list && state.tab === 'analysis') show(); } };
+  return { show, updateDerived, load, renderList, reset, relabel: () => { if (A.list && state.tab === 'analysis') show(); } };
 })();

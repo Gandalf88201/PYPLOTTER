@@ -52,6 +52,11 @@ PLUGIN = {
                   'it': 'Funzioni: exp log log10 sqrt sin cos tan arctan sinh cosh tanh abs erf; costanti pi, e.'}},
         {'id': 'p0', 'type': 'text', 'default': '',
          'label': {'en': 'Starting values (e.g. tau=10, c=0)', 'it': 'Valori iniziali (es. tau=10, c=0)'}},
+        {'id': 'band', 'type': 'choice', 'default': 'confidence',
+         'label': {'en': 'Error band of the curve', 'it': 'Banda d’errore della curva'},
+         'choices': [{'value': 'confidence', 'label': {'en': '95% confidence (of the fitted curve)', 'it': 'confidenza 95% (della curva)'}},
+                     {'value': 'prediction', 'label': {'en': '95% prediction (of new points)', 'it': 'predizione 95% (di nuovi punti)'}},
+                     {'value': 'none', 'label': {'en': 'none', 'it': 'nessuna'}}]},
         {'id': 'xmin', 'type': 'float', 'optional': True, 'label': {'en': 'Fit from x =', 'it': 'Fit da x ='}},
         {'id': 'xmax', 'type': 'float', 'optional': True, 'label': {'en': 'Fit up to x =', 'it': 'Fit fino a x ='}},
     ],
@@ -179,6 +184,20 @@ def parse_p0(text, names, guess):
     return p0
 
 
+def curve_band(f, x, popt, pcov, tcrit, extra_var=0.0):
+    """Half-width of the confidence band: t·sqrt(J·C·Jᵀ (+ extra variance)), J by central differences."""
+    popt = np.asarray(popt, float)
+    jac = np.empty((x.size, popt.size))
+    for j in range(popt.size):
+        h = 1e-6 * max(abs(popt[j]), 1e-8)
+        up, dn = popt.copy(), popt.copy()
+        up[j] += h
+        dn[j] -= h
+        jac[:, j] = (f(x, *up) - f(x, *dn)) / (2 * h)
+    var = np.einsum('ij,jk,ik->i', jac, pcov, jac) + extra_var
+    return tcrit * np.sqrt(np.clip(var, 0, None))
+
+
 def run(df, p, ctx):
     from scipy import optimize, stats
 
@@ -260,13 +279,32 @@ def run(df, p, ctx):
         r.value('Ea', popt[1] / 1000, perr[1] / 1000, 'kJ/mol')
 
     xname, yname = p['x'], p['y']
-    data = pd.DataFrame({xname: x, yname: y, 'fit': fit_y, ctx.tr('residual', 'residuo'): resid})
-    if x.size < 400:      # add a smooth curve between the data points
-        dense = np.linspace(x.min(), x.max(), 400)
-        data = pd.concat([data, pd.DataFrame({xname: dense, 'fit': f(dense, *popt)})], ignore_index=True)
-        data = data.sort_values(xname, kind='stable').reset_index(drop=True)
-    r.data(data, name=f'fit · {yname}', plot={
-        'kind': 'line', 'x': xname, 'y': [yname, 'fit'],
-        'series': {yname: {'linestyle': 'none', 'marker': 'o', 'label': yname},
-                   'fit': {'label': ctx.tr('fit', 'fit')}}})
+    resid_name = ctx.tr('residual', 'residuo')
+    data = pd.DataFrame({xname: x, yname: y, 'fit': fit_y, resid_name: resid})
+    if sigma is not None:
+        data[p['sigma']] = sigma
+    # Smooth curve on a fine grid with its 95 % band, to draw over the original figure.
+    grid = np.linspace(x.min(), x.max(), 400)
+    curve = pd.DataFrame({xname: grid, 'fit': f(grid, *popt)})
+    lo = hi = None
+    band_label = None
+    if p['band'] != 'none' and np.all(np.isfinite(pcov)):
+        extra = 0.0
+        if p['band'] == 'prediction':
+            extra = np.interp(grid, x, sigma ** 2) if sigma is not None else ss_res / dof
+        half = curve_band(f, grid, popt, pcov, tcrit, extra)
+        lo, hi = 'band low', 'band high'
+        curve[lo], curve[hi] = curve['fit'] - half, curve['fit'] + half
+        band_label = ctx.tr('95% confidence', 'confidenza 95%') if p['band'] == 'confidence' \
+            else ctx.tr('95% prediction', 'predizione 95%')
+        r.value(ctx.tr('band', 'banda'), band_label)
+    ref = r.overlay(curve, xname, 'fit', lo, hi, label=ctx.tr('fit', 'fit') + f' ({p["model"]})', band_label=band_label)
+    r.table(ctx.tr('Fitted curve and band', 'Curva e banda del fit'), curve.iloc[::20])
+    if sigma is not None:
+        plot = {'kind': 'errorbar', 'x': xname, 'y': [yname], 'yerr': p['sigma'], 'style': {'marker': 'o'},
+                'series': {yname: {'linestyle': 'none', 'label': yname}}, 'overlays': [{'ref': ref}]}
+    else:
+        plot = {'kind': 'line', 'x': xname, 'y': [yname], 'overlays': [{'ref': ref}],
+                'series': {yname: {'linestyle': 'none', 'marker': 'o', 'label': yname}}}
+    r.data(data, name=f'fit · {yname}', plot=plot)
     return r

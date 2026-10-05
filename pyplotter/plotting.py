@@ -31,6 +31,7 @@ DEFAULT_SPEC = {
     'kind': 'line', 'lang': 'en',
     'x': None, 'y': [], 'y2': [], 'hue': None, 'z': None, 'xerr': None, 'yerr': None,
     'series': {},
+    'overlays': [],
     'figure': {'width': 89, 'height': 67, 'units': 'mm', 'dpi': 600, 'transparent': False, 'background': '#ffffff'},
     'text': {'title': '', 'xlabel': '', 'ylabel': '', 'y2label': '', 'zlabel': '', 'font': '', 'size': 8,
              'title_size': 9, 'label_size': 8, 'tick_size': 7, 'legend_size': 7, 'mathtext': 'dejavusans',
@@ -80,6 +81,7 @@ def normalize_spec(spec):
         spec[key] = [v] if isinstance(v, str) else [c for c in v if c]
     for key in ('x', 'hue', 'z', 'xerr', 'yerr'):
         spec[key] = spec.get(key) or None
+    spec['overlays'] = [o for o in (spec.get('overlays') or []) if isinstance(o, dict)]
     return spec
 
 
@@ -821,7 +823,46 @@ def _legend(fig, ax, spec, handles, labels, kind):
         ax.legend(handles, labels, loc=loc, **kw)
 
 
-def build_figure(df, spec):
+OVERLAY_KINDS = {'line', 'scatter', 'step', 'area', 'errorbar', 'regression', 'stem', 'hist', 'kde', 'ecdf',
+                 'hexbin', 'hist2d', 'contour', 'heatmap'}
+
+
+def _draw_overlays(ax, spec, ser, df, overlay_data):
+    """Analysis results drawn over the figure: a curve (or markers) and an optional error band.
+
+    Each overlay is {'id', 'x', 'y', 'lo', 'hi', 'label', 'band_label', 'band', 'style': {...}}; its data comes
+    from overlay_data[id] (a DataFrame) or, when it has no data of its own, from the plotted DataFrame.
+    """
+    for o in spec.get('overlays') or []:
+        if not isinstance(o, dict) or o.get('hidden'):
+            continue
+        frame = (overlay_data or {}).get(o.get('id'))
+        if frame is None:
+            if o.get('dataset_id'):
+                continue                        # its data is not available: skip rather than fail
+            frame = df
+        cols = [o.get('x'), o.get('y'), o.get('lo'), o.get('hi')]
+        if not o.get('x') or not o.get('y') or any(c and c not in frame.columns for c in cols):
+            continue
+        st = o.get('style') or {}
+        label = o.get('label') or o['y']
+        color = st.get('color') or ser.next(f'overlay:{o.get("id")}', label)['color']
+        sub = frame[[c for c in dict.fromkeys(cols) if c]].apply(pd.to_numeric, errors='coerce')
+        sub = sub.dropna(subset=[o['x'], o['y']]).sort_values(o['x'], kind='stable')
+        x = sub[o['x']].to_numpy(float)
+        if o.get('lo') and o.get('hi') and o.get('band', True):
+            band = sub[[o['lo'], o['hi']]].notna().all(axis=1).to_numpy()
+            ax.fill_between(x[band], sub[o['lo']].to_numpy(float)[band], sub[o['hi']].to_numpy(float)[band],
+                            color=color, alpha=float(st.get('band_alpha', 0.22)), linewidth=0,
+                            label=f'{label} ({o.get("band_label") or "95% CI"})', zorder=1.5)
+        ls = st.get('linestyle', '-')
+        marker = st.get('marker') or None
+        ax.plot(x, sub[o['y']].to_numpy(float), color=color, ls='none' if ls in ('', 'none') else ls,
+                lw=float(st.get('linewidth') or spec['style']['linewidth']), marker=marker,
+                ms=float(st.get('markersize') or spec['style']['markersize'] * 1.4), label=label, zorder=3)
+
+
+def build_figure(df, spec, overlay_data=None):
     """Create the Matplotlib Figure. Call inside style_context(spec) and rc_context(_rc(spec))."""
     spec = normalize_spec(spec)
     kind = spec['kind']
@@ -842,6 +883,8 @@ def build_figure(df, spec):
                 'hist2d', 'contour') and not ycols:
         raise SpecError('Choose at least one Y column.')
     result = PLOTTERS[kind](ax, d, ser, ycols)
+    if kind in OVERLAY_KINDS:
+        _draw_overlays(ax, spec, ser, df, overlay_data)
 
     xlabel, ylabel = t['xlabel'], t['ylabel']
     auto_x = spec['x'] or ''
@@ -944,8 +987,8 @@ def _pairplot(fig, d, ser, spec, weight):
 
 
 # ------------------------------------------------------------------ output
-def render(df, spec, fmt='png', dpi=None):
-    """Render to bytes. fmt: png, tiff, jpg, pdf, svg or eps."""
+def render(df, spec, fmt='png', dpi=None, overlay_data=None):
+    """Render to bytes. fmt: png, tiff, jpg, pdf, svg or eps. overlay_data: {overlay id: DataFrame}."""
     spec = normalize_spec(spec)
     fmt = fmt.lower()
     if fmt not in ('png', 'tiff', 'jpg', 'pdf', 'svg', 'eps'):
@@ -958,7 +1001,7 @@ def render(df, spec, fmt='png', dpi=None):
     with warnings.catch_warnings():
         warnings.simplefilter('ignore')
         with style_context(spec), rc_context(_rc(spec)):
-            fig = build_figure(df, spec)
+            fig = build_figure(df, spec, overlay_data)
             buf = io.BytesIO()
             kw = {}
             if fmt == 'tiff':

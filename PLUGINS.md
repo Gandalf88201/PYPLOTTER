@@ -80,7 +80,18 @@ parameters (`provenance.json`) and references (`REFERENCES.txt`). `plot` uses th
 figure: `kind`, `x`, `y`, `y2`, `yerr`, `series`, `text`, `axes`, `style`. Use the label
 `'_nolegend_'` to hide a series from the legend.
 
+`r.overlay(frame, x, y, lo=None, hi=None, label=None, band_label=None, style=None)` adds a **layer
+that can be drawn over the original figure** (*Overlay on the figure*): the curve `x → y` and, if
+`lo`/`hi` are given, a shaded error band (e.g. the 95 % confidence band of a fit). Use the same x
+units as the analysed data. It returns an index that `r.data(..., plot={'overlays': [{'ref': i}]})`
+can use to draw the layer on the result figure too. The user can recolour, relabel, hide or remove
+each layer under **Overlays**; layers are exported with the figure and rebuilt after a restart.
+
 Raise `ValueError('message')` for problems the user should fix; the message is shown as is.
+
+> A **customised copy** of a built-in analysis is yours: later PyPlotter updates do not change it.
+> To get the new version of a built-in analysis, disable your copy (or customise it again after
+> renaming the old one).
 
 ### Modules and licences
 
@@ -114,7 +125,10 @@ programma: gli aggiornamenti di PyPlotter non la toccano.
 La struttura, i tipi di parametro e l'oggetto `ctx` sono descritti sopra con un esempio completo.
 In sintesi: dichiara i parametri in `PLUGIN['params']` (PyPlotter genera il modulo), calcola in
 `run`, restituisci `ctx.result()` con valori, tabelle, testo, un eventuale nuovo insieme di dati da
-tracciare (`r.data(...)`) e i riferimenti da citare. Elenca in `requires` i moduli necessari (solo
+tracciare (`r.data(...)`), eventuali livelli da sovrapporre al grafico originale con la loro banda
+d'errore (`r.overlay(...)`) e i riferimenti da citare. Nota: una **copia personalizzata** di
+un'analisi inclusa non riceve gli aggiornamenti successivi di PyPlotter; disattivala per tornare
+alla versione aggiornata. Elenca in `requires` i moduli necessari (solo
 open source, con licenza e citazione nel registro). Lancia `ValueError('messaggio')` per errori che
 l'utente deve correggere.
 

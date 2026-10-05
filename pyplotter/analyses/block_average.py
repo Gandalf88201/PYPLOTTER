@@ -16,6 +16,8 @@ PLUGIN = {
     'requires': [],
     'params': [
         {'id': 'y', 'type': 'column', 'default': 'y', 'label': {'en': 'Series', 'it': 'Serie'}},
+        {'id': 'x', 'type': 'column', 'optional': True, 'default': 'x',
+         'label': {'en': 'Time column (for the overlay, optional)', 'it': 'Colonna del tempo (per la sovrapposizione, facoltativa)'}},
         {'id': 'discard', 'type': 'float', 'default': 0, 'min': 0, 'max': 90,
          'label': {'en': 'Discard the first … % (equilibration)', 'it': 'Scarta il primo … % (equilibratura)'}},
     ],
@@ -52,9 +54,9 @@ def plateau(table):
 
 
 def run(df, p, ctx):
-    y = ctx.numeric(df, p['y']).to_numpy(dtype=float)
+    t, y = ctx.xy(df, p['x'], p['y'])
     start = int(y.size * p['discard'] / 100)
-    y = y[start:]
+    t, y = t[start:], y[start:]
     if y.size < 16:
         raise ValueError(ctx.tr('At least 16 values are needed.', 'Servono almeno 16 valori.'))
     table = blocking(y)
@@ -76,6 +78,12 @@ def run(df, p, ctx):
                   'Controlla il grafico: lo SEM deve stabilizzarsi (plateau). Se continua a salire, la serie è '
                   'troppo corta per un errore affidabile.'))
     r.table(ctx.tr('Blocking levels', 'Livelli di blocking'), table)
+    xname = p['x'] or 'index'
+    mean_name = ctx.tr('mean', 'media')
+    line = pd.DataFrame({xname: [t[0], t[-1]], mean_name: [y.mean()] * 2,
+                         'low': [y.mean() - 2 * sem_true] * 2, 'high': [y.mean() + 2 * sem_true] * 2})
+    r.overlay(line, xname, mean_name, 'low', 'high', label=mean_name, band_label='±2 SEM (block)',
+              style={'linestyle': '--'})
     r.data(table, name=f'blocking · {p["y"]}', plot={
         'kind': 'errorbar', 'x': 'block size', 'y': ['SEM'], 'yerr': 'SEM error',
         'axes': {'xscale': 'log'}, 'style': {'marker': 'o'},

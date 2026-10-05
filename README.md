@@ -58,7 +58,11 @@ Keep the terminal window open while you work; Ctrl+C stops PyPlotter. Options:
     distribution fitting ranked by AIC;
   - *signal* — Savitzky–Golay smoothing and derivatives, power spectrum, peak finding (FWHM, area),
     integrals.
-  Every result can be plotted as a new, fully styleable figure.
+  Results can be **overlaid on the original figure** with their error bands (95 % confidence or
+  prediction band of fits and regressions, mean ± SEM of block averaging, smoothed curves, peak
+  markers) — a fit weighted by an error column also shows the data with those error bars — or
+  plotted as a new, fully styleable figure.
+- **New** (top bar) starts a new analysis: closes data, figure, results and overlays, keeps your style.
 - **Your own analyses**: write plugins, or customise any built-in analysis, in the in-app editor;
   they live in `~/.pyplotter/plugins/` and survive updates. See [PLUGINS.md](PLUGINS.md).
 - **Module manager**: `pyplotter/registry.json` lists every optional module with its licence and
@@ -121,7 +125,10 @@ con un solo pulsante e una barra di avanzamento. Tieni aperta la finestra del te
   correlazione incrociata, statistica descrittiva, test di normalità, confronto tra gruppi (t-test,
   ANOVA, Kruskal–Wallis, Tukey…), correlazioni, regressione e ANOVA con formule, fit di distribuzioni,
   smoothing, derivate, spettro, picchi, integrali — sempre con moduli Python open source e i riferimenti
-  da citare. Ogni risultato si può tracciare come nuova figura.
+  da citare. I risultati si possono **sovrapporre al grafico originale** con le loro bande d'errore
+  (confidenza o predizione al 95% di fit e regressioni, media ± SEM del block averaging, curve filtrate,
+  picchi; un fit pesato mostra anche le barre d'errore dei dati) oppure tracciare come nuova figura.
+- **Nuovo** (in alto) inizia una nuova analisi: chiude dati, figura, risultati e sovrapposizioni, mantiene lo stile.
 - **Plugin personali**: scrivi le tue analisi o personalizza quelle incluse nell'editor dell'app; restano
   in `~/.pyplotter/plugins/` anche dopo gli aggiornamenti. Guida: [PLUGINS.md](PLUGINS.md).
 - Gestore dei moduli: a ogni avvio controlla su PyPI le ultime versioni; i moduli mancanti vengono

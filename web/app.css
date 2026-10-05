@@ -311,3 +311,10 @@ textarea.code { width: 100%; height: min(60vh, 560px); font: 12.5px/1.5 var(--mo
 .spacer { flex: 1; }
 .dlg-actions { align-items: center; }
 @media (max-width: 760px) { .analysis-box { grid-template-columns: minmax(0, 1fr); position: static; } .an-list { border-right: 0; border-bottom: 1px solid var(--border); } }
+
+.overlay-row { border: 1px solid var(--border); border-radius: 8px; padding: 8px; display: grid; grid-template-columns: 32px 1fr auto; gap: 6px 8px; align-items: center; }
+.overlay-row .src { grid-column: 1 / -1; font-size: 11.5px; color: var(--muted); }
+.overlay-row .opts { grid-column: 1 / -1; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.overlay-row .opts select { flex: 1 1 100%; }
+.overlay-row .opts .check { margin: 0; font-size: 12.5px; }
+.overlay-row.hidden-layer { opacity: .55; }

@@ -53,6 +53,8 @@ def run(df, p, ctx):
     marks[idx] = y[idx]
     label = ctx.tr('peaks', 'picchi')
     data = pd.DataFrame({xname: x, p['y']: y, label: marks})
+    r.overlay(pd.DataFrame({xname: x[idx], label: y[idx]}), xname, label, label=label,
+              style={'linestyle': 'none', 'marker': '^' if p['minima'] else 'v'})
     r.data(data, name=f'{label} · {p["y"]}', plot={'kind': 'line', 'x': xname, 'y': [p['y'], label],
                                                    'series': {label: {'linestyle': 'none', 'marker': 'v'}}})
     return r

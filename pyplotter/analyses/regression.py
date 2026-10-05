@@ -75,6 +75,18 @@ def run(df, p, ctx):
             r.table(ctx.tr('ANOVA (type II)', 'ANOVA (tipo II)'), table, index=True)
         except Exception as exc:
             r.text(ctx.tr('ANOVA table not available: ', 'Tabella ANOVA non disponibile: ') + str(exc))
+    preds = [c for c in (p['predictors'] or []) if c != p['y']]
+    if not p['formula'].strip() and len(preds) == 1 and pd.api.types.is_numeric_dtype(df[preds[0]]):
+        xv = pd.to_numeric(df[preds[0]], errors='coerce').dropna()
+        grid = pd.DataFrame({preds[0]: np.linspace(xv.min(), xv.max(), 200)})
+        frame = fit.get_prediction(grid).summary_frame(alpha=0.05)
+        curve = pd.DataFrame({preds[0]: grid[preds[0]], 'OLS': frame['mean'],
+                              'CI low': frame['mean_ci_lower'], 'CI high': frame['mean_ci_upper'],
+                              'PI low': frame['obs_ci_lower'], 'PI high': frame['obs_ci_upper']})
+        r.overlay(curve, preds[0], 'OLS', 'CI low', 'CI high', label='OLS',
+                  band_label=ctx.tr('95% confidence', 'confidenza 95%'))
+        r.overlay(curve, preds[0], 'OLS', 'PI low', 'PI high', label=ctx.tr('OLS prediction', 'OLS predizione'),
+                  band_label=ctx.tr('95% prediction', 'predizione 95%'), style={'linestyle': ':'})
     data = pd.DataFrame({ctx.tr('fitted', 'valori stimati'): fit.fittedvalues,
                          ctx.tr('residual', 'residuo'): fit.resid,
                          ctx.tr('observed', 'osservato'): model.endog})

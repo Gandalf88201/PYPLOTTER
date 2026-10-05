@@ -523,7 +523,66 @@ function buildMapping(rebuildLists = true) {
 }
 
 // ------------------------------------------------------------------ series styling
+function buildOverlays() {
+  const list = state.spec.overlays || [];
+  $('#overlayCard').hidden = !list.length;
+  $('#overlayCount').textContent = list.length || '';
+  const box = $('#overlayList');
+  box.innerHTML = '';
+  const pal = state.meta.palettes[state.spec.style.palette] || [];
+  list.forEach((o, i) => {
+    o.style = o.style || {};
+    const row = document.createElement('div');
+    row.className = 'overlay-row' + (o.hidden ? ' hidden-layer' : '');
+    row.innerHTML = `<div class="src"></div><input type="color"><input type="text"><button class="reset" type="button">✕</button>
+      <div class="opts"><select class="ls"></select><label class="check"><input type="checkbox" class="band"><span></span></label>
+      <label class="check"><input type="checkbox" class="show"><span></span></label></div>`;
+    row.querySelector('.src').textContent = o.source_name || '';
+    const color = row.querySelector('input[type=color]');
+    color.value = o.style.color || pal[(state.spec.y.length + i) % (pal.length || 1)] || '#000000';
+    const label = row.querySelector('input[type=text]');
+    label.value = o.label || '';
+    const ls = row.querySelector('.ls');
+    fillSelect(ls, [...LINESTYLES.map(v => [v, t('ls.' + v)]), ['none', t('ov.markers')]], o.style.linestyle || '-');
+    const band = row.querySelector('.band');
+    band.checked = o.band !== false && !!(o.lo && o.hi);
+    band.disabled = !(o.lo && o.hi);
+    band.nextElementSibling.textContent = o.band_label ? `${t('ov.band')} (${o.band_label})` : t('ov.band');
+    const show = row.querySelector('.show');
+    show.checked = !o.hidden;
+    show.nextElementSibling.textContent = t('ov.visible');
+    color.oninput = () => { o.style.color = color.value; scheduleRender(250); };
+    label.oninput = () => { o.label = label.value; scheduleRender(400); };
+    ls.onchange = () => { o.style.linestyle = ls.value; if (ls.value === 'none' && !o.style.marker) o.style.marker = 'o'; scheduleRender(0); };
+    band.onchange = () => { o.band = band.checked; scheduleRender(0); };
+    show.onchange = () => { o.hidden = !show.checked; row.classList.toggle('hidden-layer', o.hidden); scheduleRender(0); };
+    const rm = row.querySelector('.reset');
+    rm.title = t('ov.remove');
+    rm.onclick = () => { state.spec.overlays.splice(i, 1); buildOverlays(); scheduleRender(0); };
+    box.append(row);
+  });
+}
+
+function newSession() {
+  if (state.dataset && !confirm(t('new.confirm'))) return;
+  clearDataset();
+  state.spec = merge(state.defaults, store.get('pp-style', {}));
+  state.spec.overlays = [];
+  if (window.Analysis) window.Analysis.reset();
+  $('#fileInput').value = '';
+  $('#tableSelect').innerHTML = '';
+  $('#seriesList').innerHTML = '';
+  syncControls();
+  buildKindGallery();
+  buildKindOptions();
+  buildOverlays();
+  updateFigInfo();
+  setTab('figure');
+  toast(t('new.done'));
+}
+
 function buildSeries() {
+  buildOverlays();
   const box = $('#seriesList');
   box.innerHTML = '';
   const s = state.spec;
@@ -698,7 +757,7 @@ async function renderNow() {
 function resetDataSpec(mapping) {
   const s = state.spec;
   Object.assign(s, { kind: mapping.kind || 'line', x: mapping.x, y: mapping.y || [], y2: [], hue: null, z: mapping.z || null,
-    xerr: mapping.xerr || null, yerr: mapping.yerr || null, series: {} });
+    xerr: mapping.xerr || null, yerr: mapping.yerr || null, series: {}, overlays: [] });
   ['title', 'xlabel', 'ylabel', 'y2label', 'zlabel'].forEach(k => { s.text[k] = ''; });
   ['xmin', 'xmax', 'ymin', 'ymax', 'y2min', 'y2max'].forEach(k => { s.axes[k] = null; });
   s.style.vmin = null;
@@ -1123,6 +1182,7 @@ async function restartService() {
 // ------------------------------------------------------------------ start
 function bindGlobal() {
   $$('.seg [data-lang]').forEach(b => { b.onclick = () => setLang(b.dataset.lang); });
+  $('#btnNew').onclick = newSession;
   $('#btnTheme').onclick = () => setTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
   $('#btnModules').onclick = () => openModules().catch(handleError);
   $('#btnAbout').onclick = openAbout;
