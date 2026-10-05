@@ -32,27 +32,40 @@ window.Analysis = (() => {
     if (A.current) renderMain(A.current, true);
   }
 
+  // Every analysis stays visible: one row of chips per category; the chosen one is highlighted.
   function renderList() {
-    const sel = $('#anSelect');
-    sel.innerHTML = '';
+    const box = $('#anList');
+    box.innerHTML = '';
     CATS.forEach(cat => {
       const items = A.list.plugins.filter(p => p.category === cat);
       if (!items.length) return;
-      const g = document.createElement('optgroup');
-      g.label = t('an.cat.' + cat);
+      const h = document.createElement('div');
+      h.className = 'an-cat';
+      h.textContent = `${t('an.cat.' + cat)} (${items.length})`;
+      const row = document.createElement('div');
+      row.className = 'an-chips';
       items.forEach(p => {
-        const o = document.createElement('option');
-        o.value = p.id;
-        let tag = '';
-        if (p.missing.length) tag = '  ↓';
-        else if (p.source === 'user') tag = `  (${p.overrides ? t('an.custom') : t('an.user')})`;
-        o.textContent = L(p.name) + tag;
-        g.append(o);
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'an-chip' + (p.id === A.current ? ' active' : '');
+        b.dataset.id = p.id;
+        b.textContent = L(p.name);
+        let tip = L(p.description);
+        if (p.missing.length) {
+          b.classList.add('need');
+          b.textContent += ' ↓';
+          tip += '\n' + t('an.needs', { mods: p.missing.join(', ') });
+        } else if (p.source === 'user') {
+          b.classList.add('user');
+          b.textContent += ` · ${p.overrides ? t('an.custom') : t('an.user')}`;
+          tip += `\n${p.file}`;
+        }
+        b.title = tip;
+        b.onclick = () => renderMain(p.id);
+        row.append(b);
       });
-      sel.append(g);
+      box.append(h, row);
     });
-    if (A.current) sel.value = A.current;
-    sel.onchange = () => renderMain(sel.value);
     const err = $('#anErrors');
     err.innerHTML = '';
     if (A.list.errors.length) {
@@ -101,7 +114,7 @@ window.Analysis = (() => {
 
   function renderMain(id, keepResult = false) {
     A.current = id;
-    $('#anSelect').value = id;
+    $$('#anList .an-chip').forEach(b => b.classList.toggle('active', b.dataset.id === id));
     const p = plugin();
     const main = $('#anMain');
     main.innerHTML = '';
