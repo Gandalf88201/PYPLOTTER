@@ -50,6 +50,27 @@ def ensure_private_env():
     os.execv(str(py), args)
 
 
+def persistent_token():
+    """Random token kept in ~/.pyplotter/token (owner-only), so open tabs keep working after a restart."""
+    home = Path(os.environ.get('PYPLOTTER_HOME') or Path.home() / '.pyplotter')
+    path = home / 'token'
+    try:
+        token = path.read_text(encoding='ascii').strip()
+        if len(token) >= 32:
+            return token
+    except OSError:
+        pass
+    token = secrets.token_urlsafe(32)
+    try:
+        home.mkdir(parents=True, exist_ok=True)
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, 'w', encoding='ascii') as fh:
+            fh.write(token)
+    except OSError:
+        pass                      # read-only home: a per-run token still works
+    return token
+
+
 ensure_private_env()
 sys.path.insert(0, str(ROOT))
 from pyplotter.server import serve  # noqa: E402
@@ -65,7 +86,7 @@ def main():
     args = ap.parse_args()
 
     restarted = os.environ.get('PYPLOTTER_RESTARTED') == '1'
-    token = os.environ.get('PYPLOTTER_TOKEN') or secrets.token_urlsafe(24)
+    token = os.environ.get('PYPLOTTER_TOKEN') or persistent_token()
     session = os.environ.get('PYPLOTTER_SESSION') or tempfile.mkdtemp(prefix='pyplotter-')
 
     httpd = None

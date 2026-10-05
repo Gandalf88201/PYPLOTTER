@@ -63,6 +63,10 @@
         <button class="chip" data-sample="surface" data-i18n="sample.surface">Surface</button>
         <button class="chip" data-sample="cloud" data-i18n="sample.cloud">Point cloud</button>
       </div>
+      <div class="derived" id="derivedBox" hidden>
+        <span class="small" id="derivedName"></span>
+        <button class="btn small" id="btnBack" data-i18n="an.back">← Back to the source data</button>
+      </div>
       <div class="field" id="tableField" hidden>
         <label for="tableSelect" data-i18n="data.table">Table / sheet / dataset</label>
         <select id="tableSelect"></select>
@@ -103,6 +107,7 @@
       <div class="tabs">
         <button class="tab active" data-tab="figure" data-i18n="tab.figure">Figure</button>
         <button class="tab" data-tab="table" data-i18n="tab.table">Data table</button>
+        <button class="tab" data-tab="analysis" data-i18n="tab.analysis">Analysis</button>
         <span class="figinfo muted small" id="figInfo"></span>
       </div>
       <div class="stage" id="stage">
@@ -117,6 +122,20 @@
         </div>
         <div class="error-box" id="errorBox" hidden></div>
         <div class="table-box" id="tableBox" hidden></div>
+        <div class="analysis-box" id="analysisBox" hidden>
+          <aside class="an-list">
+            <div class="an-tools">
+              <button class="btn small" id="btnNewPlugin" data-i18n="an.new">New plugin</button>
+              <button class="btn small" id="btnPluginFolder" data-i18n="an.folder">Plugins folder</button>
+              <button class="btn small ghost" id="btnReloadPlugins" data-i18n-title="an.reload" aria-label="Reload">⟳</button>
+            </div>
+            <div id="anList"></div>
+            <div id="anErrors"></div>
+          </aside>
+          <section class="an-main" id="anMain">
+            <p class="muted" data-i18n="an.pick">Choose an analysis on the left.</p>
+          </section>
+        </div>
       </div>
       <div class="hints" id="hints"></div>
     </div>
@@ -299,11 +318,28 @@
   </div>
 </dialog>
 
+<dialog id="pluginDialog" class="dialog wide">
+  <div class="dlg">
+    <div class="dlg-head"><h2><span data-i18n="an.editor">Plugin editor</span> · <code id="pluginFile"></code></h2>
+      <button class="btn ghost icon" data-close aria-label="Close">✕</button></div>
+    <p class="small muted" id="pluginPath"></p>
+    <textarea id="pluginCode" class="code" spellcheck="false" autocomplete="off" autocapitalize="off"></textarea>
+    <pre class="plugin-errors" id="pluginErrors" hidden></pre>
+    <div class="dlg-actions">
+      <button class="btn" id="btnDisablePlugin" data-i18n="an.disable">Disable plugin</button>
+      <span class="spacer"></span>
+      <button class="btn" data-close data-i18n="btn.close">Close</button>
+      <button class="btn primary" id="btnSavePlugin" data-i18n="an.save">Save &amp; reload</button>
+    </div>
+  </div>
+</dialog>
+
 <div class="toasts" id="toasts"></div>
 <div class="dropveil" id="dropVeil"><div data-i18n="data.dropnow">Drop the file to open it</div></div>
 
 <script src="/static/i18n.js"></script>
 <script src="/static/icons.js"></script>
 <script src="/static/app.js"></script>
+<script src="/static/analysis.js"></script>
 </body>
 </html>

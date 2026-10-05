@@ -45,6 +45,22 @@ Keep the terminal window open while you work; Ctrl+C stops PyPlotter. Options:
   colour/label/line/marker, fonts and sizes in points, LaTeX-style math (`$\alpha$`, `$10^{-3}$`),
   log/symlog scales, limits, ticks (in/out, minor, mirrored), grid, frame, legend inside/outside.
   Style templates can be saved and loaded as JSON.
+- **Analysis** tab (all through open-source Python modules, results with the references to cite):
+  - *fitting* — 15 models (exponential, double, stretched/KWW, power, Gaussian, Lorentzian, Voigt,
+    logistic, Hill, Michaelis–Menten, Arrhenius, sine, polynomials) or your own formula, weighted by an
+    error column, with standard errors, 95 % CIs, R², adjusted R², RMSE, χ²_red, AIC, BIC (SciPy);
+  - *time series* — autocorrelation and partial autocorrelation with confidence band, integrated
+    correlation time, statistical inefficiency, effective samples (statsmodels); block averaging
+    (Flyvbjerg–Petersen) for the true error of correlated data such as MD trajectories; cross-correlation;
+  - *statistics* — descriptive statistics, normality tests with Q–Q plot, group comparisons (t-tests,
+    Mann–Whitney, Wilcoxon, ANOVA, Alexander–Govern, Kruskal–Wallis, Tukey HSD, effect sizes),
+    correlation with p-values, linear models and ANOVA with R-style formulas (statsmodels),
+    distribution fitting ranked by AIC;
+  - *signal* — Savitzky–Golay smoothing and derivatives, power spectrum, peak finding (FWHM, area),
+    integrals.
+  Every result can be plotted as a new, fully styleable figure.
+- **Your own analyses**: write plugins, or customise any built-in analysis, in the in-app editor;
+  they live in `~/.pyplotter/plugins/` and survive updates. See [PLUGINS.md](PLUGINS.md).
 - **Module manager**: `pyplotter/registry.json` lists every optional module with its licence and
   citation. At each start PyPlotter checks PyPI for the latest versions; missing modules are offered
   when a feature needs them, updates are one click, each with a single progress bar.
@@ -52,9 +68,11 @@ Keep the terminal window open while you work; Ctrl+C stops PyPlotter. Options:
 ## Privacy and security
 
 Everything runs on your computer. The service listens on 127.0.0.1 only, every request needs the
-per-session token embedded in the page, and uploaded files are kept in a private temporary folder
+token embedded in the page (a random value kept in `~/.pyplotter/token`, readable only by you, so open
+tabs keep working after a restart), and uploaded files are kept in a private temporary folder
 that is deleted when PyPlotter stops. Only package installs (pip) and the version check contact
-the internet (PyPI).
+the internet (PyPI). Analysis plugins are Python code running with your rights: install only plugins
+you trust.
 
 ## Licences and citations
 
@@ -70,7 +88,8 @@ licence and [REFERENCES.md](REFERENCES.md) for what to cite (also shown in the a
 
 `pyplotter/plotting.py` is the renderer (a JSON spec → Matplotlib figure), `readers.py` the file
 readers, `smart.py` the recommendations, `modules.py` the registry, PyPI check and pip installs,
-`server.py` the local HTTP API, `web/` the interface.
+`plugins.py` the analysis plugin system, `analyses/` the built-in analyses, `server.py` the local HTTP
+API, `web/` the interface.
 
 ---
 
@@ -97,6 +116,14 @@ con un solo pulsante e una barra di avanzamento. Tieni aperta la finestra del te
 - Esportazione alle dimensioni esatte delle colonne delle riviste: PNG/TIFF/JPEG fino a 1200 DPI,
   PDF/SVG/EPS vettoriali con testo modificabile, HTML interattivo e uno ZIP con script Python che
   ricrea la figura, completo dei riferimenti da citare.
+- Scheda **Analisi**: fit (15 modelli o formula libera, con errori, intervalli di confidenza, R², AIC),
+  autocorrelazione e PACF, tempo di correlazione, block averaging per l'errore di dati correlati (es. MD),
+  correlazione incrociata, statistica descrittiva, test di normalità, confronto tra gruppi (t-test,
+  ANOVA, Kruskal–Wallis, Tukey…), correlazioni, regressione e ANOVA con formule, fit di distribuzioni,
+  smoothing, derivate, spettro, picchi, integrali — sempre con moduli Python open source e i riferimenti
+  da citare. Ogni risultato si può tracciare come nuova figura.
+- **Plugin personali**: scrivi le tue analisi o personalizza quelle incluse nell'editor dell'app; restano
+  in `~/.pyplotter/plugins/` anche dopo gli aggiornamenti. Guida: [PLUGINS.md](PLUGINS.md).
 - Gestore dei moduli: a ogni avvio controlla su PyPI le ultime versioni; i moduli mancanti vengono
   proposti quando servono e si installano o aggiornano con un clic, con la sola barra di avanzamento.
 

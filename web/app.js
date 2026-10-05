@@ -12,7 +12,7 @@ const store = {
 const state = {
   lang: store.get('pp-lang') || ((navigator.language || 'en').toLowerCase().startsWith('it') ? 'it' : 'en'),
   meta: null, status: null, defaults: null, spec: null,
-  file: null, dataset: null, source: null, recommend: [],
+  file: null, dataset: null, source: null, recommend: [], history: [],
   renderSeq: 0, renderCtrl: null, renderTimer: null, fitDpi: 96, tab: 'figure', busyJob: null,
 };
 
@@ -62,6 +62,7 @@ function setLang(lang) {
   applyI18n();
   if (state.meta) { buildStaticSelects(); buildKindGallery(); buildKindOptions(); buildMapping(false); buildSeries(); updateHints(); updateFigInfo(); }
   if ($('#modulesDialog').open) renderModules();
+  if (window.Analysis) { window.Analysis.relabel(); window.Analysis.updateDerived(); }
   if (state.dataset) scheduleRender();
 }
 
@@ -90,10 +91,20 @@ async function api(path, body, opts = {}) {
   if (!res.ok) {
     let data = {};
     try { data = await res.json(); } catch (e) { /* not JSON */ }
+    if (data.code === 'token') reloadForNewSession();
     throw new ApiError(data.error || res.statusText, res.status, data);
   }
   if (opts.raw) return res;
   return res.json();
+}
+
+// The service was restarted with another token: reload once to pick up the new page.
+function reloadForNewSession() {
+  let last = 0;
+  try { last = Number(sessionStorage.getItem('pp-reload') || 0); } catch (e) { /* ignore */ }
+  if (Date.now() - last < 10000) return;          // avoid a reload loop
+  try { sessionStorage.setItem('pp-reload', String(Date.now())); } catch (e) { /* ignore */ }
+  location.reload();
 }
 
 // ------------------------------------------------------------------ toasts
@@ -697,13 +708,16 @@ function resetDataSpec(mapping) {
 function applyDataset(ds, keepSpec = false) {
   state.dataset = ds;
   state.source = ds.source;
+  if (!ds.source || !ds.source.analysis) state.history = [];
+  if (window.Analysis) window.Analysis.updateDerived();
   state.recommend = ds.recommend || [];
   state.warnings = [];
   if (!keepSpec) resetDataSpec(ds.mapping);
   $('#datasetName').textContent = ds.name;
   $('#mappingCard').hidden = false;
   $('#emptyState').hidden = true;
-  const base = (ds.name || 'figure').split(/[\\/›]/).pop().replace(/\.[^.]+$/, '').replace(/[^\w.-]+/g, '_').slice(0, 60);
+  const base = (ds.name || 'figure').split(/[\\/›]/).pop().trim().replace(/\.[^.]+$/, '').replace(/[^\w.-]+/g, '_')
+    .replace(/^_+|_+$/g, '').slice(0, 60);
   $('#exportName').value = base || 'figure';
   syncControls();
   buildKindGallery();
@@ -714,6 +728,7 @@ function applyDataset(ds, keepSpec = false) {
   updateHints();
   updateFigInfo();
   if (state.tab === 'table') setTab('figure');
+  if (state.tab === 'analysis' && window.Analysis) window.Analysis.show();
   scheduleRender(0);
 }
 
@@ -737,6 +752,7 @@ function uploadFile(file) {
     xhr.onload = () => {
       let data = {};
       try { data = JSON.parse(xhr.responseText); } catch (e) { /* not JSON */ }
+      if (data.code === 'token') reloadForNewSession();
       if (xhr.status >= 400) reject(new ApiError(data.error || xhr.statusText, xhr.status, data));
       else resolve(data);
     };
@@ -816,12 +832,29 @@ async function reopenSource() {
   const src = state.source;
   if (!src) return;
   try {
-    const ds = src.sample ? await api('/api/sample', { name: src.sample })
-      : await api('/api/open', { file_id: src.file_id, table: src.table, options: src.options });
+    const ds = await api('/api/reopen', { source: src });
     applyDataset(ds, true);
   } catch (e) {
+    if (e.code === 'file_gone' || e.code === 'dataset_gone') return clearDataset(t('data.gone'));
     handleError(e);
   }
+}
+
+function clearDataset(message) {
+  state.dataset = null;
+  state.source = null;
+  state.file = null;
+  state.history = [];
+  $('#datasetName').textContent = '';
+  $('#mappingCard').hidden = true;
+  $('#tableField').hidden = true;
+  $('#importOptions').hidden = true;
+  $('#figureBox').hidden = true;
+  $('#errorBox').hidden = true;
+  $('#emptyState').hidden = false;
+  $('#btnExport').disabled = true;
+  $('#hints').innerHTML = '';
+  if (message) toast(message, true);
 }
 
 function handleError(e, retry) {
@@ -880,9 +913,11 @@ function setTab(tab) {
   const hasData = !!state.dataset;
   $('#tableBox').hidden = tab !== 'table' || !hasData;
   $('#figureBox').hidden = tab !== 'figure' || !hasData;
+  $('#analysisBox').hidden = tab !== 'analysis' || !hasData;
   $('#emptyState').hidden = hasData;
   if (tab !== 'figure') $('#errorBox').hidden = true;
   if (tab === 'figure') scheduleRender(0);
+  if (tab === 'analysis' && hasData && window.Analysis) window.Analysis.show();
 }
 
 // ------------------------------------------------------------------ export & templates
@@ -960,7 +995,7 @@ function renderModules() {
   $('#btnUpdateAll').textContent = t('modules.update_all', { n: upd.length });
   const box = $('#modulesTable');
   box.innerHTML = '';
-  const cats = ['core', 'plotting', 'styles', 'science', 'formats'];
+  const cats = ['core', 'plotting', 'analysis', 'styles', 'science', 'formats'];
   cats.forEach(cat => {
     const mods = st.modules.filter(m => m.category === cat);
     if (!mods.length) return;
@@ -1035,6 +1070,7 @@ async function pollRefresh() {
     await new Promise(r => setTimeout(r, 700));
     await refreshStatus();
     if ($('#modulesDialog').open) renderModules();
+  if (window.Analysis) { window.Analysis.relabel(); window.Analysis.updateDerived(); }
     if (state.status.refresh?.state !== 'running') break;
   }
 }

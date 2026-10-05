@@ -18,7 +18,8 @@ and redistribution, including in commercial work.
 | plotly | MIT | interactive HTML export | https://plotly.com/python/ |
 | SciencePlots | MIT | Science / Nature-like / IEEE-like styles | https://github.com/garrettj403/SciencePlots |
 | cmcrameri | MIT | Crameri scientific colour maps | https://www.fabiocrameri.ch/colourmaps/ |
-| scipy | BSD-3-Clause | MATLAB .mat files | https://scipy.org |
+| scipy | BSD-3-Clause | fitting, statistics, signal processing; MATLAB .mat files | https://scipy.org |
+| statsmodels | BSD-3-Clause | autocorrelation, regression, ANOVA | https://www.statsmodels.org |
 | openpyxl | MIT | Excel .xlsx | https://openpyxl.readthedocs.io |
 | xlrd | BSD-3-Clause | Excel .xls | https://xlrd.readthedocs.io |
 | odfpy | Apache-2.0 (or GPL-2.0 / LGPL-2.1, at the user's choice) | .ods spreadsheets | https://github.com/eea/odfpy |
@@ -31,8 +32,8 @@ and redistribution, including in commercial work.
 | pyreadstat | Apache-2.0 | SPSS | https://github.com/Roche/pyreadstat |
 | lxml | BSD-3-Clause | HTML tables, fast XML | https://lxml.de |
 
-Their dependencies (e.g. Pillow, contourpy, fonttools, kiwisolver, python-dateutil) are installed
-by pip and are likewise open source; run `.venv/bin/python -m pip show <name>` for any of them.
+Their dependencies (e.g. Pillow, contourpy, fonttools, kiwisolver, python-dateutil; patsy (BSD-2-Clause)
+and formulaic (MIT) for statsmodels formulas) are installed by pip and are likewise open source; run `.venv/bin/python -m pip show <name>` for any of them.
 
 **Exported files.** Figures you export are your own work; PyPlotter adds no licence to them.
 The interactive HTML export embeds plotly.js (MIT), whose licence header stays inside the file.
@@ -43,6 +44,10 @@ the MIT licence (the licence text is included in the ZIP).
 Paul Tol, Matplotlib tab10); colour maps come from Matplotlib or, optionally, cmcrameri.
 Sources are in [REFERENCES.md](REFERENCES.md). Palettes derived from copyleft packages or
 named after publishers are deliberately not included.
+
+**Analysis plugins.** The built-in analyses in `pyplotter/analyses/` are original code under the
+MIT licence; they call the packages above and cite the methods they implement (REFERENCES.md).
+Plugins you write are yours: choose their licence freely.
 
 **Adding a module.** Add only packages with an OSI-approved licence to
 `pyplotter/registry.json`, filling in `license` (SPDX identifier) and, when the authors ask for

@@ -18,6 +18,7 @@ scrive un `REFERENCES.txt` con esattamente i riferimenti necessari.
 
 ## Optional modules / Moduli facoltativi
 
+- **statsmodels** — Seabold, S. & Perktold, J. statsmodels: Econometric and statistical modeling with Python. *Proc. 9th Python in Science Conf.*, 92–96 (2010). doi:10.25080/Majora-92bf1922-011
 - **SciPy** — Virtanen, P. et al. SciPy 1.0: fundamental algorithms for scientific computing in Python. *Nature Methods* 17, 261–272 (2020). doi:10.1038/s41592-019-0686-2
 - **seaborn** — Waskom, M. L. seaborn: statistical data visualization. *Journal of Open Source Software* 6(60), 3021 (2021). doi:10.21105/joss.03021
 - **Plotly** — Plotly Technologies Inc. *Collaborative data science*. Montréal, QC (2015). https://plot.ly
@@ -41,6 +42,25 @@ scrive un `REFERENCES.txt` con esattamente i riferimenti necessari.
 - Density curves (KDE): Gaussian kernel with Silverman's rule-of-thumb bandwidth — Silverman, B. W. *Density Estimation for Statistics and Data Analysis*. Chapman & Hall (1986).
 - Curve fits: ordinary least squares (`numpy.polyfit`); exponential, logarithmic and power-law models are fitted as linear models of the transformed variables, and R² is computed on the original scale.
 - JCAMP-DX reader (AFFN form): McDonald, R. S. & Wilks, P. A. JCAMP-DX: A Standard Form for Exchange of Infrared Spectra in Computer Readable Form. *Applied Spectroscopy* 42(1), 151–162 (1988).
+
+## Methods of the built-in analyses / Metodi delle analisi incluse
+
+Each analysis lists its references in the app next to the result; they are collected here.
+
+- Block averaging — Flyvbjerg, H. & Petersen, H. G. Error estimates on averages of correlated data. *J. Chem. Phys.* 91, 461–466 (1989). doi:10.1063/1.457480
+- Integrated autocorrelation time, automatic window — Madras, N. & Sokal, A. D. The pivot algorithm: a highly efficient Monte Carlo method for the self-avoiding walk. *J. Stat. Phys.* 50, 109–186 (1988). doi:10.1007/BF01022990
+- Stretched exponential (KWW) — Williams, G. & Watts, D. C. Non-symmetrical dielectric relaxation behaviour arising from a simple empirical decay function. *Trans. Faraday Soc.* 66, 80–85 (1970). doi:10.1039/TF9706600080
+- Shapiro–Wilk — Shapiro, S. S. & Wilk, M. B. An analysis of variance test for normality (complete samples). *Biometrika* 52, 591–611 (1965). doi:10.1093/biomet/52.3-4.591
+- D'Agostino–Pearson — D'Agostino, R. & Pearson, E. S. Tests for departure from normality. *Biometrika* 60, 613–622 (1973). doi:10.1093/biomet/60.3.613
+- Anderson–Darling — Anderson, T. W. & Darling, D. A. Asymptotic theory of certain "goodness of fit" criteria based on stochastic processes. *Ann. Math. Stat.* 23, 193–212 (1952). doi:10.1214/aoms/1177729437
+- Welch t-test — Welch, B. L. The generalization of "Student's" problem when several different population variances are involved. *Biometrika* 34, 28–35 (1947). doi:10.1093/biomet/34.1-2.28
+- Mann–Whitney U — Mann, H. B. & Whitney, D. R. *Ann. Math. Stat.* 18, 50–60 (1947). doi:10.1214/aoms/1177730491
+- Kruskal–Wallis — Kruskal, W. H. & Wallis, W. A. Use of ranks in one-criterion variance analysis. *J. Am. Stat. Assoc.* 47, 583–621 (1952). doi:10.1080/01621459.1952.10483441
+- Tukey HSD — Tukey, J. W. Comparing individual means in the analysis of variance. *Biometrics* 5, 99–114 (1949). doi:10.2307/3001913
+- Effect sizes — Cohen, J. *Statistical Power Analysis for the Behavioral Sciences*, 2nd ed. Lawrence Erlbaum (1988).
+- AIC — Akaike, H. A new look at the statistical model identification. *IEEE Trans. Autom. Control* 19, 716–723 (1974). doi:10.1109/TAC.1974.1100705
+- Savitzky–Golay filter — Savitzky, A. & Golay, M. J. E. Smoothing and differentiation of data by simplified least squares procedures. *Anal. Chem.* 36, 1627–1639 (1964). doi:10.1021/ac60214a047
+- Welch power spectrum — Welch, P. The use of fast Fourier transform for the estimation of power spectra. *IEEE Trans. Audio Electroacoust.* 15, 70–73 (1967). doi:10.1109/TAU.1967.1161901
 
 ## Journal size presets / Formati rivista
 

@@ -78,6 +78,7 @@ class App:
         self.lock = threading.Lock()
         self.files = self._load_files()
         self.restart_hook = None
+        self._plugins = None
 
     # -------------------------------------------------------------- uploaded files
     def _files_index(self):
@@ -172,13 +173,14 @@ class App:
         df = samples.make(which)
         return self._register(df, f'sample: {which}', {'sample': which}, {})
 
-    def _register(self, df, name, source, used):
+    def _register(self, df, name, source, used, references=()):
         from . import smart
         cols = smart.profile(df)
         mapping = smart.default_mapping(cols, len(df))
         did = secrets.token_hex(6)
         with self.lock:
-            self.datasets[did] = {'df': df, 'name': name, 'source': source, 'columns': cols}
+            self.datasets[did] = {'df': df, 'name': name, 'source': source, 'columns': cols,
+                                  'references': list(references)}
             while len(self.datasets) > MAX_DATASETS:
                 self.datasets.popitem(last=False)
         head = df.head(PREVIEW_ROWS)
@@ -192,6 +194,87 @@ class App:
         if ds is None:
             raise ApiError('The data set is no longer loaded; open the file again.', 404, 'dataset_gone')
         return ds
+
+    def reopen(self, source, depth=0):
+        """Rebuild a data set from its source: file, sample, or analysis of another data set."""
+        if not isinstance(source, dict) or depth > 10:
+            raise ApiError('Unknown data source.', 400)
+        if source.get('sample'):
+            return self.sample(str(source['sample']))
+        if source.get('analysis'):
+            parent = self.reopen(source.get('parent'), depth + 1)
+            return self.run_analysis({'dataset_id': parent['dataset_id'], 'id': source['analysis'],
+                                      'params': source.get('params') or {}, 'spec': source.get('spec') or {},
+                                      'lang': source.get('lang', 'en')})['dataset']
+        return self.open_table(source)
+
+    # -------------------------------------------------------------- analyses & plugins
+    def plugin_manager(self):
+        self.modules.require(self.modules.core_ids())
+        if self._plugins is None:
+            from .plugins import PluginManager
+            self._plugins = PluginManager()
+        return self._plugins
+
+    def analyses(self):
+        return self.plugin_manager().describe(missing=self.modules.missing)
+
+    def run_analysis(self, body):
+        from .plugins import PluginError
+        ds = self.dataset(body.get('dataset_id'))
+        pm = self.plugin_manager()
+        try:
+            plugin = pm.get(str(body.get('id')))
+        except PluginError as exc:
+            raise ApiError(str(exc), 404, 'plugin')
+        self.modules.require(self.modules.core_ids() + plugin['requires'])
+        lang = body.get('lang') if body.get('lang') in ('en', 'it') else 'en'
+        spec = body.get('spec') or {}
+        try:
+            plugin, values, res = pm.run(plugin['id'], ds['df'], body.get('params') or {}, lang, spec)
+        except (PluginError, ValueError, KeyError, TypeError, ZeroDivisionError, RuntimeError, ArithmeticError) as exc:
+            raise ApiError(_plugin_message(exc, plugin), 422, 'analysis')
+        except ImportError as exc:
+            raise ApiError(f'A module is missing: {exc}', 409, 'import_error')
+        except Exception as exc:
+            traceback.print_exc()
+            raise ApiError(_plugin_message(exc, plugin), 422, 'analysis')
+        out = {'plugin': {'id': plugin['id'], 'name': plugin['name'], 'source': plugin['source'], 'file': plugin['file']},
+               'params': values, 'summary': res.summary, 'tables': res.tables, 'texts': res.texts,
+               'references': list(dict.fromkeys(res.refs)), 'dataset': None, 'plot': res.plot}
+        if res.frame is not None and len(res.frame.columns):
+            from .readers import tidy
+            name = f'{ds["name"]} › {res.name or plugin["name"][lang]}'
+            source = {'analysis': plugin['id'], 'params': values, 'parent': ds['source'], 'spec': spec, 'lang': lang}
+            out['dataset'] = self._register(tidy(res.frame.copy()), name, source, {},
+                                            references=ds.get('references', []) + out['references'])
+        return out
+
+    def plugin_action(self, action, body):
+        from .plugins import PluginError
+        pm = self.plugin_manager()
+        try:
+            if action == 'read':
+                return pm.read(body.get('file'), body.get('id'))
+            if action == 'save':
+                code = str(body.get('code') or '')
+                if len(code) > 2_000_000:
+                    raise PluginError('The plugin file is too large.')
+                return pm.save(body.get('file'), code)
+            if action == 'new':
+                return pm.create(body.get('name'))
+            if action == 'customize':
+                return pm.customize(str(body.get('id')))
+            if action == 'disable':
+                return pm.disable(body.get('file'))
+            if action == 'folder':
+                return pm.open_folder()
+            if action == 'reload':
+                pm.reload()
+                return pm.describe(missing=self.modules.missing)
+        except (PluginError, OSError) as exc:
+            raise ApiError(str(exc), 422, 'plugin')
+        raise ApiError('Unknown plugin action.', 404)
 
     # -------------------------------------------------------------- figures
     def check_spec(self, spec, export=None):
@@ -210,7 +293,8 @@ class App:
                 if fmt == 'html':
                     return exporters.plotly_html(ds['df'], spec), catalog.EXPORT_FORMATS['html']['mime']
                 if fmt == 'py':
-                    data = exporters.script_bundle(ds['df'], spec, 'figure', self.modules.modules)
+                    data = exporters.script_bundle(ds['df'], spec, 'figure', self.modules.modules,
+                                                   extra_refs=ds.get('references', []), source=ds['source'])
                     return data, catalog.EXPORT_FORMATS['py']['mime']
                 dpi = body.get('dpi') if not export else (body.get('dpi') or None)
                 return plotting.render(ds['df'], spec, fmt, dpi), catalog.EXPORT_FORMATS[fmt]['mime']
@@ -348,6 +432,14 @@ def make_handler(app, port):
                     return self._json(app.open_table(body))
                 if path == '/api/sample':
                     return self._json(app.sample(str(body.get('name') or 'spectra')))
+                if path == '/api/analyses':
+                    return self._json(app.analyses())
+                if path == '/api/analyses/run':
+                    return self._json(app.run_analysis(body))
+                if path == '/api/reopen':
+                    return self._json(app.reopen(body.get('source')))
+                if path.startswith('/api/plugins/'):
+                    return self._json(app.plugin_action(path.rsplit('/', 1)[-1], body))
                 if path == '/api/recommend':
                     return self._json(app.recommend(body))
                 if path == '/api/render':
@@ -423,3 +515,15 @@ def _open(url):
         webbrowser.open(url)
     except Exception:
         pass
+
+
+def _plugin_message(exc, plugin):
+    """Error text for a failed analysis; for user plugins include the failing line of their file."""
+    msg = f'{exc.__class__.__name__}: {exc}' if not str(exc).startswith(exc.__class__.__name__) else str(exc)
+    if isinstance(exc, (ValueError,)) and exc.__class__.__name__ in ('ValueError', 'PluginError'):
+        msg = str(exc)
+    tb = traceback.extract_tb(exc.__traceback__)
+    lines = [f for f in tb if f.filename == plugin.get('path')]
+    if lines and plugin.get('source') == 'user':
+        msg += f' ({plugin["file"]}, line {lines[-1].lineno})'
+    return msg

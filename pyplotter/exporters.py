@@ -42,7 +42,7 @@ def used_columns(spec):
     return [c for c in dict.fromkeys(cols) if c]
 
 
-def references_text(modules, spec):
+def references_text(modules, spec, extra=()):
     """Plain-text software references for a figure: core modules plus the optional ones it used."""
     from .catalog import requirements_for
     used = {'numpy', 'pandas', 'matplotlib'} | set(requirements_for(spec.get('kind'), spec.get('style', {}).get('base'),
@@ -58,10 +58,14 @@ def references_text(modules, spec):
     elif palette.startswith('tol-'):
         lines.append('- Colour palette: Tol, P. Colour Schemes. SRON Technical Note SRON/EPS/TN/09-002, issue 3.2 (2021). '
                      'https://personal.sron.nl/~pault/')
+    extra = [r for r in dict.fromkeys(extra) if r]
+    if extra:
+        lines += ['', 'Analyses applied to the data:']
+        lines += [f'- {r}' for r in extra]
     return '\n'.join(lines) + '\n'
 
 
-def script_bundle(df, spec, name='figure', modules=()):
+def script_bundle(df, spec, name='figure', modules=(), extra_refs=(), source=None):
     """ZIP with data.csv, spec.json, plotting.py, catalog.py, make_figure.py and REFERENCES.txt."""
     spec = plotting.normalize_spec(spec)
     cols = used_columns(spec)
@@ -76,7 +80,9 @@ def script_bundle(df, spec, name='figure', modules=()):
         zf.writestr(f'{name}/plotting.py', (HERE / 'plotting.py').read_text(encoding='utf-8'))
         zf.writestr(f'{name}/catalog.py', (HERE / 'catalog.py').read_text(encoding='utf-8'))
         zf.writestr(f'{name}/make_figure.py', MAKE_FIGURE.format(dates=dates, formats=['pdf', 'png', 'svg']))
-        zf.writestr(f'{name}/REFERENCES.txt', references_text(modules, spec))
+        zf.writestr(f'{name}/REFERENCES.txt', references_text(modules, spec, extra_refs))
+        if source:
+            zf.writestr(f'{name}/provenance.json', json.dumps(_provenance(source), indent=2, ensure_ascii=False, default=str))
         zf.writestr(f'{name}/LICENSE.txt', (HERE.parent / 'LICENSE').read_text(encoding='utf-8'))
     return buf.getvalue()
 
@@ -219,3 +225,13 @@ def plotly_html(df, spec):
         if lo is not None and hi is not None:
             fig.update_layout(**{axis: {'range': [lo, hi]}})
     return fig.to_html(include_plotlyjs=True, full_html=True, config={'toImageButtonOptions': {'format': 'svg'}}).encode('utf-8')
+
+
+def _provenance(source):
+    """How the plotted data was obtained: file/table/options, then each analysis with its parameters."""
+    steps, node = [], source
+    while isinstance(node, dict) and node.get('analysis'):
+        steps.append({'analysis': node['analysis'], 'parameters': node.get('params', {})})
+        node = node.get('parent')
+    origin = {k: v for k, v in (node or {}).items() if k in ('sample', 'table', 'options')}
+    return {'schema': 'pyplotter-provenance/1', 'origin': origin, 'analyses': list(reversed(steps))}
