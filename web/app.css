@@ -263,7 +263,8 @@ pre { font-family: var(--mono); font-size: 11px; max-height: 200px; overflow: au
   .panel.right { grid-column: 1 / -1; border-left: 0; border-top: 1px solid var(--border); display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); align-items: start; }
   body { overflow: auto; }
   .layout { height: auto; min-height: calc(100vh - 52px); }
-  .center { min-height: 70vh; }
+  .center { min-height: 70vh; align-self: start; }
+  .stage-wrap { flex: none; height: 72vh; }
 }
 @media (max-width: 760px) {
   .layout { grid-template-columns: minmax(0, 1fr); }
@@ -318,3 +319,24 @@ textarea.code { width: 100%; height: min(60vh, 560px); font: 12.5px/1.5 var(--mo
 .overlay-row .opts select { flex: 1 1 100%; }
 .overlay-row .opts .check { margin: 0; font-size: 12.5px; }
 .overlay-row.hidden-layer { opacity: .55; }
+
+/* ---------------------------------------------------------------- several files */
+.data-error { margin: 10px 0 0; padding: 8px 10px; border-radius: 8px; background: var(--danger-soft); color: var(--danger);
+  border: 1px solid var(--danger); font-size: 12.5px; white-space: pre-wrap; }
+.loaded { margin-top: 12px; }
+.loaded-head { color: var(--muted); font-weight: 600; margin-bottom: 4px; }
+.file-row { display: flex; align-items: center; gap: 6px; padding: 5px 6px; border-radius: 7px; border: 1px solid transparent; font-size: 12.5px; cursor: pointer; }
+.file-row:hover { background: var(--panel-2); }
+.file-row.active { border-color: var(--accent); background: var(--accent-soft); font-weight: 600; }
+.file-row .fname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-row .meta { color: var(--muted); font-family: var(--mono); font-size: 10.5px; }
+.file-row .x { border: 0; background: none; color: var(--muted); cursor: pointer; padding: 0 4px; }
+.wide-seg { display: flex; width: 100%; margin: 4px 0 10px; }
+.wide-seg button { flex: 1; padding: 6px; }
+.panel-opts { margin-bottom: 8px; }
+.combine-file { border: 1px solid var(--border); border-radius: 8px; padding: 8px; margin-bottom: 8px; }
+.combine-file .head { display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 600; margin-bottom: 6px; }
+.combine-file .head span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.combine-file .checklist { max-height: 110px; }
+.combine-file.off .body { display: none; }
+.banner.warn { background: var(--danger-soft); color: var(--danger); }

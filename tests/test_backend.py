@@ -254,6 +254,34 @@ class TestPlotting(unittest.TestCase):
                 'legend': {'loc': 'outside right', 'frame': True}, 'style': {'palette': 'tol-bright', 'base': 'ggplot'}}
         self.assertTrue(plotting.render(df, spec, 'png', dpi=60).startswith(b'\x89PNG'))
 
+    def test_several_files(self):
+        a = samples.make('spectra')
+        b, c = a.copy(), a.copy()
+        b['Sample A'] *= 0.7
+        c['Sample A'] *= 0.4
+        spec = {'kind': 'line', 'x': 'Wavelength (nm)', 'y': ['Sample A'], 'name': 'B1.dat',
+                'extra': [{'id': 'e1', 'name': 'B2.dat', 'x': 'Wavelength (nm)', 'y': ['Sample A']},
+                          {'id': 'e2', 'name': 'B3.dat', 'x': 'Wavelength (nm)', 'y': ['Sample A']}]}
+        extra = {'e1': b, 'e2': c}
+        svg = plotting.render(a, spec, 'svg', extra_data=extra).decode()
+        for name in ('B1.dat', 'B2.dat', 'B3.dat'):
+            self.assertIn(name, svg)                    # one legend entry per file
+        svg = plotting.render(a, dict(spec, layout={'mode': 'panels', 'ncols': 2}), 'svg', extra_data=extra).decode()
+        self.assertIn('(c) B3.dat', svg)                # one lettered panel per file
+        for kind in ('scatter', 'errorbar', 'hist', 'kde', 'ecdf'):
+            with self.subTest(kind=kind):
+                self.assertTrue(plotting.render(a, dict(spec, kind=kind), 'png', dpi=40, extra_data=extra)
+                                .startswith(b'\x89PNG'))
+        # a missing file is skipped; the script bundle carries the other files
+        self.assertTrue(plotting.render(a, spec, 'png', dpi=40).startswith(b'\x89PNG'))
+        import subprocess
+        data = exporters.script_bundle(a, spec, 'fig', load_registry(), extra_data=extra)
+        with tempfile.TemporaryDirectory() as tmp:
+            zipfile.ZipFile(io.BytesIO(data)).extractall(tmp)
+            self.assertTrue((Path(tmp) / 'fig' / 'extra_2.csv').exists())
+            out = subprocess.run([sys.executable, 'make_figure.py'], cwd=Path(tmp) / 'fig', capture_output=True, text=True)
+            self.assertEqual(out.returncode, 0, out.stderr)
+
     def test_bad_spec(self):
         with self.assertRaises(plotting.SpecError):
             plotting.render(samples.make('spectra'), {'kind': 'line', 'y': ['nope']}, 'png')

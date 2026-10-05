@@ -82,6 +82,7 @@ def normalize_spec(spec):
     for key in ('x', 'hue', 'z', 'xerr', 'yerr'):
         spec[key] = spec.get(key) or None
     spec['overlays'] = [o for o in (spec.get('overlays') or []) if isinstance(o, dict)]
+    spec['extra'] = [e for e in (spec.get('extra') or []) if isinstance(e, dict)]
     return spec
 
 
@@ -130,6 +131,8 @@ class Data:
             if col is not None and col not in df.columns:
                 raise SpecError(f'Column not found: {col}')
         self.lang = LABELS.get(spec.get('lang'), LABELS['en'])
+        self.label_prefix = ''      # file name, when several files share a figure
+        self.key_prefix = ''        # series-style key prefix of that file
 
     def col(self, name, frame=None):
         frame = self.df if frame is None else frame
@@ -196,14 +199,21 @@ def _series_label(ycol, group, n_y):
 
 
 # ------------------------------------------------------------------ plot kinds
+def _label(d, base, single):
+    """Series label; with several files the file name is shown (alone when the file has one series)."""
+    if not d.label_prefix:
+        return base
+    return d.label_prefix if single else f'{d.label_prefix} · {base}'
+
+
 def _xy_loop(ax, d, ser, ycols, draw):
     for ycol in ycols:
         for g, sub in d.groups():
             x, y, ok = d.xy(ycol, sub)
             if not len(x):
                 continue
-            key = ycol if g is None else f'{ycol}::{g}'
-            st = ser.next(key, _series_label(ycol, g, len(ycols)))
+            key = d.key_prefix + (ycol if g is None else f'{ycol}::{g}')
+            st = ser.next(key, _label(d, _series_label(ycol, g, len(ycols)), len(ycols) == 1 and g is None))
             draw(x, y, st, sub[ok])
 
 
@@ -416,12 +426,12 @@ def _dist_groups(d, ycols):
     group_col = d.spec['hue'] or (d.spec['x'] if d.spec['kind'] in ('box', 'violin', 'strip', 'swarm') else None)
     if group_col and len(ycols) == 1:
         for g, sub in d.df.groupby(group_col, sort=True, observed=True):
-            out.append((str(g), f'{ycols[0]}::{g}', d.values(ycols[0], sub)))
+            out.append((_label(d, str(g), False), d.key_prefix + f'{ycols[0]}::{g}', d.values(ycols[0], sub)))
         return out
     if not ycols and d.spec['x']:
         ycols = [d.spec['x']]
     for y in ycols:
-        out.append((str(y), y, d.values(y)))
+        out.append((_label(d, str(y), len(ycols) == 1), d.key_prefix + y, d.values(y)))
     if not out:
         raise SpecError('Choose at least one Y column.')
     return out
@@ -862,52 +872,118 @@ def _draw_overlays(ax, spec, ser, df, overlay_data):
                 ms=float(st.get('markersize') or spec['style']['markersize'] * 1.4), label=label, zorder=3)
 
 
-def build_figure(df, spec, overlay_data=None):
-    """Create the Matplotlib Figure. Call inside style_context(spec) and rc_context(_rc(spec))."""
+EXTRA_KINDS = {'line', 'scatter', 'step', 'errorbar', 'stem', 'regression', 'area', 'hist', 'kde', 'ecdf', 'polar'}
+
+
+def _file_data(frame, spec, extra, name):
+    """Data view of another loaded file, with its own X / Y / error columns."""
+    sub = dict(spec, x=extra.get('x') or None, y=[c for c in (extra.get('y') or []) if c],
+               xerr=None, yerr=extra.get('yerr') or None, hue=None, z=None, y2=[])
+    d = Data(frame, sub)
+    d.label_prefix = name
+    d.key_prefix = f'{extra.get("id")}:'
+    return d
+
+
+def _layers(df, spec, extra_data):
+    """[(name, Data)] for the figure: the main file plus each enabled extra file that has data."""
+    main = Data(df, spec)
+    extras = [e for e in spec.get('extra') or [] if isinstance(e, dict) and e.get('enabled', True)]
+    layers = [(spec.get('name') or '', main)]
+    for e in extras:
+        frame = (extra_data or {}).get(e.get('id'))
+        if frame is None or not (e.get('y') or spec['kind'] in ('hist', 'kde', 'ecdf')):
+            continue
+        try:
+            layers.append((e.get('name') or e.get('id'), _file_data(frame, spec, e, e.get('name') or '')))
+        except SpecError:
+            continue
+    if len(layers) > 1 and spec.get('name'):
+        main.label_prefix = spec['name']
+    return layers
+
+
+def build_figure(df, spec, overlay_data=None, extra_data=None):
+    """Create the Matplotlib Figure. Call inside style_context(spec) and rc_context(_rc(spec)).
+
+    extra_data: {extra id: DataFrame} for spec['extra'] (other files drawn in the same figure).
+    """
     spec = normalize_spec(spec)
     kind = spec['kind']
-    d = Data(df, spec)
-    ser = Series(spec)
     w, h = figure_size(spec)
     bg = spec['figure'].get('background') or None
     fig = Figure(figsize=(w, h), layout='constrained', facecolor=bg if spec['style']['base'] != 'dark' else None)
-    t = spec['text']
-    weight = 'bold' if t['bold_labels'] else 'normal'
+    weight = 'bold' if spec['text']['bold_labels'] else 'normal'
 
     if kind == 'pairplot':
-        return _pairplot(fig, d, ser, spec, weight)
+        return _pairplot(fig, Data(df, spec), Series(spec), spec, weight)
+
+    layers = _layers(df, spec, extra_data)
+    layout = spec.get('layout') or {}
+    if layout.get('mode') == 'panels' and len(layers) > 1:
+        n = len(layers)
+        ncols = max(1, min(n, int(layout.get('ncols') or 2)))
+        nrows = -(-n // ncols)
+        share = bool(layout.get('share', True))
+        axes = fig.subplots(nrows, ncols, squeeze=False, sharex=share, sharey=share,
+                            subplot_kw={'projection': 'polar'} if kind == 'polar' else None)
+        for i, ax in enumerate(axes.flat):
+            if i >= n:
+                ax.set_visible(False)
+                continue
+            name, d = layers[i]
+            d.label_prefix = ''
+            letter = f'({chr(97 + i)})' if layout.get('letters', True) else ''
+            title = ' '.join(t for t in (letter, name if layout.get('titles', True) else '') if t)
+            _draw_panel(fig, ax, d, Series(spec), spec, kind, [], overlay_data, title=title, overlays=i == 0,
+                        outer_x=i // ncols == nrows - 1 or i + ncols >= n, outer_y=i % ncols == 0 or not share)
+        if spec['text']['title']:
+            fig.suptitle(spec['text']['title'], fontweight=weight)
+        return fig
 
     ax = fig.add_subplot(projection='polar' if kind == 'polar' else None)
-    ycols = spec['y']
+    extras = [d for _, d in layers[1:]] if kind in EXTRA_KINDS else []
+    _draw_panel(fig, ax, layers[0][1], Series(spec), spec, kind, extras, overlay_data, title=spec['text']['title'])
+    return fig
+
+
+def _draw_panel(fig, ax, d, ser, spec, kind, extras, overlay_data, title='', outer_x=True, outer_y=True,
+                overlays=True):
+    """Draw one set of axes: main data, other files' series (extras), overlays, labels, ticks, limits, legend."""
+    t = spec['text']
+    weight = 'bold' if t['bold_labels'] else 'normal'
+    ycols = d.spec['y']
     if kind in ('line', 'scatter', 'step', 'area', 'errorbar', 'regression', 'stem', 'polar', 'hexbin',
                 'hist2d', 'contour') and not ycols:
         raise SpecError('Choose at least one Y column.')
     result = PLOTTERS[kind](ax, d, ser, ycols)
-    if kind in OVERLAY_KINDS:
-        _draw_overlays(ax, spec, ser, df, overlay_data)
+    for ed in extras or []:
+        PLOTTERS[kind](ax, ed, ser, ed.spec['y'])
+    if overlays and kind in OVERLAY_KINDS:
+        _draw_overlays(ax, spec, ser, d.df, overlay_data)
 
     xlabel, ylabel = t['xlabel'], t['ylabel']
-    auto_x = spec['x'] or ''
+    auto_x = d.spec['x'] or ''
     auto_y = ycols[0] if len(ycols) == 1 else ''
     if kind in ('hist', 'kde', 'ecdf'):
-        auto_x = ycols[0] if len(ycols) == 1 else (spec['x'] or '')
+        auto_x = ycols[0] if len(ycols) == 1 else (d.spec['x'] or '')
         auto_y = result
     elif kind in ('box', 'violin', 'strip', 'swarm'):
-        auto_x = spec['x'] if (spec['x'] and len(ycols) == 1) else ''
+        auto_x = d.spec['x'] if (d.spec['x'] and len(ycols) == 1) else ''
         auto_y = ycols[0] if len(ycols) == 1 else ''
     elif kind in ('bar', 'barh') and not ycols:
         auto_y = d.lang['count']
-    elif kind == 'heatmap' and not spec['z']:
+    elif kind == 'heatmap' and not d.spec['z']:
         auto_x, auto_y = '', ''
     elif kind == 'corr' or kind == 'pie':
         auto_x = auto_y = ''
     if kind == 'barh':
         auto_x, auto_y = auto_y, auto_x
     if kind != 'pie':
-        ax.set_xlabel(xlabel or auto_x, fontweight=weight)
-        ax.set_ylabel(ylabel or auto_y, fontweight=weight)
-    if t['title']:
-        ax.set_title(t['title'], fontweight=weight)
+        ax.set_xlabel((xlabel or auto_x) if outer_x else '', fontweight=weight)
+        ax.set_ylabel((ylabel or auto_y) if outer_y else '', fontweight=weight)
+    if title:
+        ax.set_title(title, fontweight=weight, loc='left' if title.startswith('(') else 'center')
 
     if isinstance(result, tuple) and spec['style']['colorbar']:
         mappable, zlabel = result
@@ -917,10 +993,10 @@ def build_figure(df, spec, overlay_data=None):
         cb.outline.set_linewidth(float(spec['axes']['linewidth']))
 
     ax2 = None
-    if spec['y2'] and kind in catalog.TWIN_KINDS:
+    if spec['y2'] and kind in catalog.TWIN_KINDS and d.spec['y2']:
         ax2 = ax.twinx()
-        PLOTTERS[kind](ax2, d, ser, spec['y2'])
-        ax2.set_ylabel(t['y2label'] or (spec['y2'][0] if len(spec['y2']) == 1 else ''), fontweight=weight)
+        PLOTTERS[kind](ax2, d, ser, d.spec['y2'])
+        ax2.set_ylabel(t['y2label'] or (d.spec['y2'][0] if len(d.spec['y2']) == 1 else ''), fontweight=weight)
         _style_axes(ax2, spec, kind, twin=True)
         ax2.tick_params(which='both', left=False, right=True)
         lo, hi = _num(spec['axes']['y2min']), _num(spec['axes']['y2max'])
@@ -932,7 +1008,7 @@ def build_figure(df, spec, overlay_data=None):
     category_x = kind in ('bar', 'box', 'violin', 'strip', 'swarm')
     category_y = kind == 'barh'
     _style_axes(ax, spec, kind, twin=ax2, category_x=category_x, category_y=category_y)
-    xlike = d.col(spec['x']) if spec['x'] and kind in catalog.TWIN_KINDS | {'area', 'stem', 'regression'} else None
+    xlike = d.col(d.spec['x']) if d.spec['x'] and kind in catalog.TWIN_KINDS | {'area', 'stem', 'regression'} else None
     _apply_limits(ax, spec, xlike, kind)
 
     handles, labels = ax.get_legend_handles_labels()
@@ -941,7 +1017,6 @@ def build_figure(df, spec, overlay_data=None):
         handles, labels = handles + h2, labels + l2
     if result != 'nolegend':
         _legend(fig, ax, spec, handles, labels, kind)
-    return fig
 
 
 def _pairplot(fig, d, ser, spec, weight):
@@ -987,8 +1062,11 @@ def _pairplot(fig, d, ser, spec, weight):
 
 
 # ------------------------------------------------------------------ output
-def render(df, spec, fmt='png', dpi=None, overlay_data=None):
-    """Render to bytes. fmt: png, tiff, jpg, pdf, svg or eps. overlay_data: {overlay id: DataFrame}."""
+def render(df, spec, fmt='png', dpi=None, overlay_data=None, extra_data=None):
+    """Render to bytes. fmt: png, tiff, jpg, pdf, svg or eps.
+
+    overlay_data: {overlay id: DataFrame}; extra_data: {extra id: DataFrame} (other files in the figure).
+    """
     spec = normalize_spec(spec)
     fmt = fmt.lower()
     if fmt not in ('png', 'tiff', 'jpg', 'pdf', 'svg', 'eps'):
@@ -1001,7 +1079,7 @@ def render(df, spec, fmt='png', dpi=None, overlay_data=None):
     with warnings.catch_warnings():
         warnings.simplefilter('ignore')
         with style_context(spec), rc_context(_rc(spec)):
-            fig = build_figure(df, spec, overlay_data)
+            fig = build_figure(df, spec, overlay_data, extra_data)
             buf = io.BytesIO()
             kw = {}
             if fmt == 'tiff':

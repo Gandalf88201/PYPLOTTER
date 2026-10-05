@@ -66,6 +66,18 @@ def json_safe(v):
     return None if s in ('NaT', 'nan', '<NA>') else s
 
 
+def build_id():
+    """Fingerprint of the program files: pages from another version ask to reload."""
+    import hashlib
+    h = hashlib.sha1(__version__.encode())
+    for folder, pattern in ((WEB, '*'), (Path(__file__).parent, '*.py')):
+        for f in sorted(folder.glob(pattern)):
+            if f.is_file() and not f.name.startswith('.'):
+                h.update(f.name.encode())
+                h.update(f.read_bytes())
+    return h.hexdigest()[:12]
+
+
 class App:
     def __init__(self, token, session_dir, modules, max_upload_bytes):
         self.token = token
@@ -78,6 +90,9 @@ class App:
         self.lock = threading.Lock()
         self.files = self._load_files()
         self.restart_hook = None
+        self.shutdown_hook = None
+        self.started = time.time()
+        self.build = build_id()
         self._plugins = None
         self._overlay_alias = {}
         self._extra_refs = []
@@ -276,10 +291,11 @@ class App:
             out['plot'] = plot
         return out
 
-    def overlay_data(self, spec):
-        """DataFrames of the overlays in a figure spec; rebuilt from their source after a restart."""
+    def _frames(self, items):
+        """{item id: DataFrame} for overlay / extra-file entries of a spec ({'id', 'dataset_id', 'source'});
+        data sets that are gone (e.g. after a restart) are rebuilt from their source when possible."""
         data = {}
-        for o in (spec.get('overlays') or []):
+        for o in items or []:
             if not isinstance(o, dict) or not o.get('dataset_id'):
                 continue
             did = self._overlay_alias.get(o['dataset_id'], o['dataset_id'])
@@ -297,6 +313,12 @@ class App:
                     if r not in self._extra_refs:
                         self._extra_refs.append(r)
         return data
+
+    def overlay_data(self, spec):
+        return self._frames(spec.get('overlays'))
+
+    def extra_data(self, spec):
+        return self._frames(spec.get('extra'))
 
     def plugin_action(self, action, body):
         from .plugins import PluginError
@@ -340,15 +362,16 @@ class App:
             with self.render_lock:
                 self._extra_refs = []
                 overlays = self.overlay_data(spec)
+                extras = self.extra_data(spec)
                 if fmt == 'html':
-                    return exporters.plotly_html(ds['df'], spec, overlays), catalog.EXPORT_FORMATS['html']['mime']
+                    return exporters.plotly_html(ds['df'], spec, overlays, extras), catalog.EXPORT_FORMATS['html']['mime']
                 if fmt == 'py':
                     data = exporters.script_bundle(ds['df'], spec, 'figure', self.modules.modules,
                                                    extra_refs=ds.get('references', []) + self._extra_refs,
-                                                   source=ds['source'], overlay_data=overlays)
+                                                   source=ds['source'], overlay_data=overlays, extra_data=extras)
                     return data, catalog.EXPORT_FORMATS['py']['mime']
                 dpi = body.get('dpi') if not export else (body.get('dpi') or None)
-                return plotting.render(ds['df'], spec, fmt, dpi, overlays), catalog.EXPORT_FORMATS[fmt]['mime']
+                return plotting.render(ds['df'], spec, fmt, dpi, overlays, extras), catalog.EXPORT_FORMATS[fmt]['mime']
         except plotting.SpecError as exc:
             raise ApiError(str(exc), 422, 'spec')
         except (MissingModules, ApiError):
@@ -410,11 +433,19 @@ def make_handler(app, port):
             self._send(status, json.dumps(data, allow_nan=False, default=json_safe).encode('utf-8'),
                        'application/json; charset=utf-8')
 
+        def _log_error(self, status, message):
+            if status in (404,) and 'gone' not in message:
+                return
+            print(f'[PyPlotter {time.strftime("%H:%M:%S")}] {status} {self.command} {urlsplit(self.path).path} — {message}',
+                  file=sys.stderr, flush=True)
+
         def _error(self, exc):
             if isinstance(exc, MissingModules):
                 return self._json({'error': str(exc), 'code': 'missing_modules', 'modules': exc.ids}, 409)
             if isinstance(exc, ApiError):
+                self._log_error(exc.status, f'{exc.code}: {exc}')
                 return self._json({'error': str(exc), 'code': exc.code, **exc.extra}, exc.status)
+            self._log_error(500, f'{exc.__class__.__name__}: {exc}')
             traceback.print_exc()
             return self._json({'error': f'Internal error: {exc}', 'code': 'internal'}, 500)
 
@@ -443,7 +474,8 @@ def make_handler(app, port):
                 self._guard()
                 path = urlsplit(self.path).path
                 if path in ('/', '/index.html'):
-                    html = (WEB / 'index.html').read_text(encoding='utf-8').replace('{{TOKEN}}', app.token)
+                    html = (WEB / 'index.html').read_text(encoding='utf-8').replace('{{TOKEN}}', app.token) \
+                        .replace('{{BUILD}}', app.build)
                     return self._send(200, html.encode('utf-8'), MIME['.html'],
                                       {'Content-Security-Policy': "default-src 'self'; img-src 'self' blob: data:; "
                                        "style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; "
@@ -455,7 +487,7 @@ def make_handler(app, port):
                         raise ApiError('Not found', 404, 'not_found')
                     return self._send(200, target.read_bytes(), MIME[target.suffix])
                 if path == '/api/status':
-                    return self._json(app.modules.status())
+                    return self._json({**app.modules.status(), 'build': app.build, 'started': app.started})
                 if path == '/api/meta':
                     return self._json(app.meta())
                 if path.startswith('/api/jobs/'):
@@ -521,6 +553,11 @@ def make_handler(app, port):
                     if job:
                         job.cancel()
                     return self._json(job.to_dict() if job else {})
+                if path == '/api/shutdown':      # a newer PyPlotter is starting: give it the port
+                    self._json({'ok': True})
+                    if app.shutdown_hook:
+                        threading.Timer(0.2, app.shutdown_hook).start()
+                    return
                 if path == '/api/restart':
                     if not app.restart_hook:
                         raise ApiError('Restart is not available.')

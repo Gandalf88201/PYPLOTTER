@@ -30,10 +30,12 @@ spec = json.loads((HERE / 'spec.json').read_text(encoding='utf-8'))
 df = pd.read_csv(HERE / 'data.csv', parse_dates={dates!r})
 # analysis results drawn over the data (fits with confidence bands, smoothing, …)
 overlays = {{o['id']: pd.read_csv(HERE / o['file']) for o in spec.get('overlays', []) if o.get('file')}}
+# other data files drawn in the same figure
+extras = {{e['id']: pd.read_csv(HERE / e['file']) for e in spec.get('extra', []) if e.get('file')}}
 
 for fmt in {formats!r}:
     out = HERE / f'figure.{{fmt}}'
-    out.write_bytes(render(df, spec, fmt, overlay_data=overlays))
+    out.write_bytes(render(df, spec, fmt, overlay_data=overlays, extra_data=extras))
     print('wrote', out.name)
 '''
 
@@ -67,7 +69,8 @@ def references_text(modules, spec, extra=()):
     return '\n'.join(lines) + '\n'
 
 
-def script_bundle(df, spec, name='figure', modules=(), extra_refs=(), source=None, overlay_data=None):
+def script_bundle(df, spec, name='figure', modules=(), extra_refs=(), source=None, overlay_data=None,
+                  extra_data=None):
     """ZIP with data.csv, spec.json, plotting.py, catalog.py, make_figure.py and REFERENCES.txt."""
     spec = plotting.normalize_spec(spec)
     cols = used_columns(spec)
@@ -86,7 +89,17 @@ def script_bundle(df, spec, name='figure', modules=(), extra_refs=(), source=Non
             overlay_files[fname] = frame[cols].to_csv(index=False)
             o['file'] = fname
         clean.append(o)
-    spec = dict(spec, overlays=clean)
+    extras = []
+    for k, e in enumerate(spec.get('extra') or []):
+        e = {key: v for key, v in e.items() if key not in ('source', 'dataset_id')}
+        frame = (extra_data or {}).get(e.get('id'))
+        if frame is not None:
+            fname = f'extra_{k + 1}.csv'
+            cols = [c for c in dict.fromkeys([e.get('x'), *(e.get('y') or []), e.get('yerr')]) if c]
+            overlay_files[fname] = frame[cols].to_csv(index=False)
+            e['file'] = fname
+            extras.append(e)
+    spec = dict(spec, overlays=clean, extra=extras)
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
         zf.writestr(f'{name}/data.csv', data.to_csv(index=False))
@@ -108,7 +121,7 @@ PLOTLY_KINDS = {'line', 'scatter', 'step', 'area', 'errorbar', 'regression', 'ba
                 'violin', 'heatmap', 'corr', 'contour', 'pie', 'kde', 'ecdf', 'stem', 'polar', 'hexbin', 'hist2d'}
 
 
-def plotly_html(df, spec, overlay_data=None):
+def plotly_html(df, spec, overlay_data=None, extra_data=None):
     import plotly.graph_objects as go
 
     spec = plotting.normalize_spec(spec)
@@ -217,6 +230,20 @@ def plotly_html(df, spec, overlay_data=None):
         fig.add_trace(go.Pie(labels=[str(c) for c in table.index], values=table.iloc[:, 0].to_numpy(),
                              marker={'colors': colors}, sort=False))
 
+    if kind in ('line', 'scatter', 'step', 'errorbar', 'area', 'regression'):
+        for e in spec.get('extra') or []:
+            frame = (extra_data or {}).get(e.get('id'))
+            if frame is None or not e.get('enabled', True) or e.get('x') not in frame:
+                continue
+            for ycol in [c for c in (e.get('y') or []) if c in frame]:
+                key = f'{e.get("id")}:{ycol}'
+                sub = frame[[e['x'], ycol] + ([e['yerr']] if e.get('yerr') in frame else [])].dropna()
+                tr = dict(x=sub[e['x']], y=sub[ycol], name=label(key, e.get('name') or ycol),
+                          mode='markers' if kind in ('scatter', 'regression') else 'lines',
+                          line={'color': color(key)})
+                if kind == 'errorbar' and e.get('yerr') in sub:
+                    tr['error_y'] = {'type': 'data', 'array': sub[e['yerr']]}
+                fig.add_trace(go.Scatter(**tr))
     for o in spec.get('overlays') or []:
         frame = (overlay_data or {}).get(o.get('id'))
         if frame is None and not o.get('dataset_id'):

@@ -19,7 +19,10 @@ Bilingual (English / Italiano), light and dark mode. MIT licence.
 3. The browser opens at `http://127.0.0.1:8770`. On the first start the page installs NumPy,
    pandas and Matplotlib into PyPlotter's private environment (`.venv`) — one button, one progress bar.
 
-Keep the terminal window open while you work; Ctrl+C stops PyPlotter. Options:
+Keep the terminal window open while you work; Ctrl+C stops PyPlotter. Starting PyPlotter again
+closes the copy that is already running, so there is always only one; if the page loses its
+service or belongs to an older run, a red bar at the top offers to reload. Problems are also
+printed in the terminal window. Options:
 `--port 8771`, `--no-browser`, `--offline` (skip the PyPI check), `--max-upload-gb 50`.
 
 ## What it does
@@ -62,6 +65,10 @@ Keep the terminal window open while you work; Ctrl+C stops PyPlotter. Options:
   prediction band of fits and regressions, mean ± SEM of block averaging, smoothed curves, peak
   markers) — a fit weighted by an error column also shows the data with those error bars — or
   plotted as a new, fully styleable figure.
+- **Several files**: open many files at once (or one after another). Files opened together are drawn
+  in the same graph, one colour and legend entry per file; *Combine files* chooses which files, columns
+  and error columns to include, or switches to **one panel per file** (shared axes, panel letters
+  (a), (b)…, file names as titles), ready for multi-panel journal figures.
 - **New** (top bar) starts a new analysis: closes data, figure, results and overlays, keeps your style.
 - **Your own analyses**: write plugins, or customise any built-in analysis, in the in-app editor;
   they live in `~/.pyplotter/plugins/` and survive updates. See [PLUGINS.md](PLUGINS.md).
@@ -128,6 +135,10 @@ con un solo pulsante e una barra di avanzamento. Tieni aperta la finestra del te
   da citare. I risultati si possono **sovrapporre al grafico originale** con le loro bande d'errore
   (confidenza o predizione al 95% di fit e regressioni, media ± SEM del block averaging, curve filtrate,
   picchi; un fit pesato mostra anche le barre d'errore dei dati) oppure tracciare come nuova figura.
+- **Più file**: apri più file insieme (o uno dopo l'altro). I file aperti insieme vengono disegnati nello
+  stesso grafico, un colore e una voce di legenda per file; *Combina file* sceglie file, colonne ed errori
+  da includere, oppure passa a **un pannello per file** (assi condivisi, lettere (a), (b)…, nomi dei file
+  come titoli), pronto per le figure a più pannelli delle riviste.
 - **Nuovo** (in alto) inizia una nuova analisi: chiude dati, figura, risultati e sovrapposizioni, mantiene lo stile.
 - **Plugin personali**: scrivi le tue analisi o personalizza quelle incluse nell'editor dell'app; restano
   in `~/.pyplotter/plugins/` anche dopo gli aggiornamenti. Guida: [PLUGINS.md](PLUGINS.md).

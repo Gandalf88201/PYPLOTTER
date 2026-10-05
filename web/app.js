@@ -63,6 +63,7 @@ function setLang(lang) {
   if (state.meta) { buildStaticSelects(); buildKindGallery(); buildKindOptions(); buildMapping(false); buildSeries(); updateHints(); updateFigInfo(); }
   if ($('#modulesDialog').open) renderModules();
   if (window.Analysis) { window.Analysis.relabel(); window.Analysis.updateDerived(); }
+  if (window.Files) Files.render();
   if (state.dataset) scheduleRender();
 }
 
@@ -569,6 +570,8 @@ function newSession() {
   state.spec = merge(state.defaults, store.get('pp-style', {}));
   state.spec.overlays = [];
   if (window.Analysis) window.Analysis.reset();
+  Files.clear();
+  setDataError('');
   $('#fileInput').value = '';
   $('#tableSelect').innerHTML = '';
   $('#seriesList').innerHTML = '';
@@ -587,24 +590,27 @@ function buildSeries() {
   box.innerHTML = '';
   const s = state.spec;
   const cols = [...s.y, ...(state.meta.twin_kinds.includes(s.kind) ? s.y2 : [])];
-  if (!cols.length || s.hue) {
+  const extraRows = (window.Files && (s.layout || {}).mode !== 'panels') ? Files.extraSpec().flatMap(e =>
+    e.y.map(c => ({ key: `${e.id}:${c}`, title: `${e.name} · ${c}` }))) : [];
+  if ((!cols.length && !extraRows.length) || s.hue) {
     box.innerHTML = `<p class="small muted">${t('series.empty')}</p>`;
     return;
   }
   const pal = state.meta.palettes[s.style.palette] || [];
-  cols.forEach((col, i) => {
+  const rows = [...cols.map(c => ({ key: c, title: c })), ...extraRows];
+  rows.forEach(({ key: col, title }, i) => {
     const over = s.series[col] || {};
     const row = document.createElement('div');
     row.className = 'series';
     row.innerHTML = `<div class="name"><span></span><button class="reset" type="button"></button></div>
       <input type="color"><input type="text">
       <div class="opts"><select class="ls"></select><select class="mk"></select><input type="number" class="lw" step="0.1" min="0"></div>`;
-    row.querySelector('.name span').textContent = col;
+    row.querySelector('.name span').textContent = title;
     row.querySelector('.reset').textContent = t('series.reset');
     const color = row.querySelector('input[type=color]');
     color.value = over.color || pal[i % (pal.length || 1)] || '#000000';
     const label = row.querySelector('input[type=text]');
-    label.placeholder = col;
+    label.placeholder = title;
     label.title = t('series.label');
     label.value = over.label || '';
     const ls = row.querySelector('.ls');
@@ -702,6 +708,8 @@ function updateFigInfo() {
 function specForServer() {
   const s = clone(state.spec);
   s.lang = state.lang;
+  s.name = state.dataset ? state.dataset.name : '';
+  s.extra = window.Files ? Files.extraSpec() : [];
   return s;
 }
 
@@ -769,6 +777,7 @@ function applyDataset(ds, keepSpec = false) {
   state.source = ds.source;
   if (!ds.source || !ds.source.analysis) state.history = [];
   if (window.Analysis) window.Analysis.updateDerived();
+  if (window.Files) Files.render();
   state.recommend = ds.recommend || [];
   state.warnings = [];
   if (!keepSpec) resetDataSpec(ds.mapping);
@@ -820,33 +829,74 @@ function uploadFile(file) {
   });
 }
 
-async function openFile(file) {
-  if (!file) return;
+// Upload one file and read its first table; returns {ds, info} without showing it.
+async function loadFile(file) {
   setUpload(true, 0, t('data.uploading', { name: file.name, pct: 0 }));
-  try {
-    let info = await uploadFile(file);
-    setUpload(true, 1, t('data.reading', { name: file.name }));
-    if (info.missing.length) {
-      const ok = await ensureModules(info.missing, 'install.reason.file', { name: file.name });
-      if (!ok) { setUpload(false); return; }
-      info = await api('/api/file', { file_id: info.file_id });
-    }
-    state.file = info;
-    const sel = $('#tableSelect');
-    fillSelect(sel, info.tables.map(n => [n, n]));
-    $('#tableField').hidden = info.tables.length < 2;
-    sel.onchange = () => openTable(sel.value);
-    const textual = info.format === 'text';
-    const sheet = ['excel', 'xls', 'ods'].includes(info.format);
-    $('#importOptions').hidden = !(textual || sheet);
-    $$('[data-import="sep"], [data-import="decimal"]').forEach(el => { el.closest('.field').hidden = !textual; });
-    $$('[data-import]').forEach(el => { el.value = el.tagName === 'SELECT' ? 'auto' : ''; });
-    await openTable(info.tables[0]);
-  } catch (e) {
-    handleError(e);
-  } finally {
-    setUpload(false);
+  let info = await uploadFile(file);
+  setUpload(true, 1, t('data.reading', { name: file.name }));
+  if (info.missing.length) {
+    const ok = await ensureModules(info.missing, 'install.reason.file', { name: file.name });
+    if (!ok) return null;
+    info = await api('/api/file', { file_id: info.file_id });
   }
+  const ds = await api('/api/open', { file_id: info.file_id, table: info.tables[0], options: {} });
+  return { ds, info };
+}
+
+function showFileControls(info) {
+  state.file = info || null;
+  const sel = $('#tableSelect');
+  if (!info) {
+    $('#tableField').hidden = true;
+    $('#importOptions').hidden = true;
+    return;
+  }
+  fillSelect(sel, info.tables.map(n => [n, n]));
+  $('#tableField').hidden = info.tables.length < 2;
+  sel.onchange = () => openTable(sel.value);
+  const textual = info.format === 'text';
+  const sheet = ['excel', 'xls', 'ods'].includes(info.format);
+  $('#importOptions').hidden = !(textual || sheet);
+  $$('[data-import="sep"], [data-import="decimal"]').forEach(el => { el.closest('.field').hidden = !textual; });
+  $$('[data-import]').forEach(el => { el.value = el.tagName === 'SELECT' ? 'auto' : ''; });
+}
+
+// Open one or more files. The first becomes the figure; files opened together are combined in it.
+async function openFiles(files) {
+  files = Array.from(files || []).filter(Boolean);
+  if (!files.length) return;
+  setDataError('');
+  const loaded = [];
+  for (const file of files) {
+    try {
+      const r = await loadFile(file);
+      if (r) loaded.push(r);
+    } catch (e) {
+      setDataError(`${file.name}: ${e.message}`);
+      if (e.code === 'missing_modules') handleError(e);
+    }
+  }
+  setUpload(false);
+  if (!loaded.length) return;
+  loaded.forEach((r, i) => {
+    const same = Files.list().find(e => e.ds.name === r.ds.name);
+    if (same) Files.replace(same.id, r.ds, r.info);        // the same file again: refresh it
+    else Files.add(r.ds, r.info, files.length > 1 && i > 0);
+  });
+  const first = loaded[0];
+  showFileControls(first.info);
+  applyDataset(first.ds);
+  setTab('figure');
+  toast(loaded.length > 1 ? t('files.opened', { n: loaded.length })
+    : t('data.loaded', { rows: first.ds.rows.toLocaleString(), cols: first.ds.columns.length }));
+}
+
+const openFile = file => openFiles([file]);
+
+function setDataError(message) {
+  const box = $('#dataError');
+  box.textContent = message || '';
+  box.hidden = !message;
 }
 
 function importOptions() {
@@ -863,8 +913,12 @@ function importOptions() {
 async function openTable(table) {
   if (!state.file) return;
   try {
+    const old = state.dataset && state.dataset.dataset_id;
     const ds = await api('/api/open', { file_id: state.file.file_id, table, options: importOptions() });
+    Files.replace(old, ds, state.file);
     applyDataset(ds);
+    setTab('figure');
+    setDataError('');
     const o = ds.options || {};
     if (o.sep !== undefined) {
       const sepSel = $('[data-import="sep"]');
@@ -878,10 +932,12 @@ async function openTable(table) {
 
 async function openSample(name) {
   try {
-    state.file = null;
-    $('#tableField').hidden = true;
-    $('#importOptions').hidden = true;
-    applyDataset(await api('/api/sample', { name }));
+    showFileControls(null);
+    const ds = await api('/api/sample', { name });
+    Files.add(ds, null, false);
+    applyDataset(ds);
+    setTab('figure');
+    setDataError('');
   } catch (e) {
     handleError(e, () => openSample(name));
   }
@@ -913,7 +969,8 @@ function clearDataset(message) {
   $('#emptyState').hidden = false;
   $('#btnExport').disabled = true;
   $('#hints').innerHTML = '';
-  if (message) toast(message, true);
+  if (window.Files) Files.render();
+  if (message) { toast(message, true); setDataError(message); }
 }
 
 function handleError(e, retry) {
@@ -922,7 +979,9 @@ function handleError(e, retry) {
     return;
   }
   console.error(e);
-  toast(e.code === 'unsupported' ? `${t('error.unsupported')} ${e.message}` : (e.message || String(e)), true);
+  const msg = e.code === 'unsupported' ? `${t('error.unsupported')} ${e.message}` : (e.message || String(e));
+  toast(msg, true);
+  if (['unsupported', 'read_error', 'import_error', 'file_gone', 'token', 'network'].includes(e.code)) setDataError(msg);
 }
 
 // ------------------------------------------------------------------ data table
@@ -1130,6 +1189,7 @@ async function pollRefresh() {
     await refreshStatus();
     if ($('#modulesDialog').open) renderModules();
   if (window.Analysis) { window.Analysis.relabel(); window.Analysis.updateDerived(); }
+  if (window.Files) Files.render();
     if (state.status.refresh?.state !== 'running') break;
   }
 }
@@ -1193,7 +1253,7 @@ function bindGlobal() {
 }
 
 function bindApp() {
-  $('#fileInput').onchange = e => { openFile(e.target.files[0]); e.target.value = ''; };
+  $('#fileInput').onchange = e => { const files = Array.from(e.target.files); e.target.value = ''; openFiles(files); };
   $$('[data-sample]').forEach(b => { b.onclick = () => openSample(b.dataset.sample); });
   $('#btnReimport').onclick = () => openTable($('#tableSelect').value || (state.file && state.file.tables[0]));
   document.addEventListener('change', onControlChange);
@@ -1226,7 +1286,7 @@ function bindApp() {
     e.preventDefault();
     depth = 0;
     veil.classList.remove('on');
-    if (e.dataTransfer.files.length) openFile(e.dataTransfer.files[0]);
+    if (e.dataTransfer.files.length) openFiles(e.dataTransfer.files);
   });
 }
 

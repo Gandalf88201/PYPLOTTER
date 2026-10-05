@@ -71,6 +71,37 @@ def persistent_token():
     return token
 
 
+def take_over(port, token):
+    """If a PyPlotter already runs on the port, ask it to stop so only the newest one serves pages."""
+    import json
+    import urllib.error
+    import urllib.request
+    base = f'http://127.0.0.1:{port}'
+    headers = {'X-Token': token, 'Content-Type': 'application/json'}
+    try:
+        with urllib.request.urlopen(urllib.request.Request(base + '/api/status', headers=headers), timeout=2) as r:
+            json.load(r)
+    except urllib.error.HTTPError as exc:
+        if exc.code == 403:
+            print(f'Note: another program (perhaps an older PyPlotter) uses port {port}; '
+                  'close its window if you do not need it. Starting on the next free port.', flush=True)
+        return
+    except Exception:
+        return                                   # nothing listening
+    try:
+        req = urllib.request.Request(base + '/api/shutdown', data=b'{}', headers=headers, method='POST')
+        urllib.request.urlopen(req, timeout=3).read()
+        print(f'Closed the PyPlotter that was already running on port {port}.', flush=True)
+    except Exception:
+        return
+    import socket
+    for _ in range(40):                          # wait until the port is free
+        with socket.socket() as sock:
+            if sock.connect_ex(('127.0.0.1', port)) != 0:
+                return
+        time.sleep(0.15)
+
+
 ensure_private_env()
 sys.path.insert(0, str(ROOT))
 from pyplotter.server import serve  # noqa: E402
@@ -89,6 +120,8 @@ def main():
     token = os.environ.get('PYPLOTTER_TOKEN') or persistent_token()
     session = os.environ.get('PYPLOTTER_SESSION') or tempfile.mkdtemp(prefix='pyplotter-')
 
+    if not restarted:
+        take_over(args.port, token)
     httpd = None
     ports = [args.port] * 10 if restarted else range(args.port, args.port + 20)
     for port in ports:
@@ -122,6 +155,11 @@ def main():
             os._exit(0)
         os.execv(sys.executable, argv)
     app.restart_hook = restart
+
+    def shutdown():
+        print('\nA newer PyPlotter window took over; this one stops here.', flush=True)
+        httpd.shutdown()
+    app.shutdown_hook = shutdown
 
     try:
         httpd.serve_forever()

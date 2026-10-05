@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="pp-token" content="{{TOKEN}}">
+<meta name="pp-build" content="{{BUILD}}">
 <title>PyPlotter</title>
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/static/app.css">
@@ -38,6 +39,11 @@
   </div>
 </header>
 
+<div class="banner warn" id="healthBanner" hidden>
+  <span id="healthText"></span>
+  <button class="btn primary small" id="btnHealth"></button>
+</div>
+
 <div class="banner" id="restartBanner" hidden>
   <span data-i18n="restart.message">Updated modules are used after a restart of the Python service.</span>
   <button class="btn primary small" id="btnRestart" data-i18n="restart.button">Restart now</button>
@@ -49,7 +55,7 @@
     <section class="card">
       <h2 data-i18n="data.title">Data</h2>
       <label class="drop" id="dropZone">
-        <input type="file" id="fileInput" hidden>
+        <input type="file" id="fileInput" multiple hidden>
         <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path d="M12 15V4m0 0-4 4m4-4 4 4M5 15v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
         <strong data-i18n="data.open">Open a file</strong>
         <span class="muted small" data-i18n="data.drop">or drop it anywhere on the page</span>
@@ -58,6 +64,11 @@
       <div class="upload" id="uploadBox" hidden>
         <div class="progress"><div class="bar" id="uploadBar"></div></div>
         <span class="small muted" id="uploadText"></span>
+      </div>
+      <div class="data-error" id="dataError" role="alert" hidden></div>
+      <div class="loaded" id="loadedBox" hidden>
+        <div class="loaded-head small"><span data-i18n="files.loaded">Loaded files</span></div>
+        <div id="loadedList"></div>
       </div>
       <div class="samples">
         <span class="small muted" data-i18n="data.samples">Examples:</span>
@@ -97,6 +108,20 @@
       <details class="sub" data-role="y2"><summary data-i18n="map.y2">Secondary Y axis</summary><div class="checklist" id="mapY2"></div></details>
       <div class="field" data-role="hue"><label for="mapHue" data-i18n="map.hue">Group by (colour)</label><select id="mapHue"></select></div>
       <div class="field" data-role="z"><label for="mapZ" data-i18n="map.z">Z / colour value</label><select id="mapZ"></select></div>
+      <details class="sub" id="combineBox" hidden open>
+        <summary data-i18n="combine.title">Combine files</summary>
+        <div class="seg wide-seg" id="layoutSeg">
+          <button type="button" data-layout="single" data-i18n="combine.same">Same graph</button>
+          <button type="button" data-layout="panels" data-i18n="combine.panels">One panel per file</button>
+        </div>
+        <div class="panel-opts" id="panelOpts">
+          <div class="field"><label data-i18n="combine.ncols">Columns of panels</label><input type="number" min="1" max="6" id="panelCols"></div>
+          <label class="check"><input type="checkbox" id="panelShare"><span data-i18n="combine.share">Shared axes</span></label>
+          <label class="check"><input type="checkbox" id="panelLetters"><span data-i18n="combine.letters">Panel letters (a), (b)…</span></label>
+          <label class="check"><input type="checkbox" id="panelTitles"><span data-i18n="combine.titles">File name as panel title</span></label>
+        </div>
+        <div id="combineList"></div>
+      </details>
       <div class="grid2">
         <div class="field" data-role="xerr"><label for="mapXerr" data-i18n="map.xerr">X error</label><select id="mapXerr"></select></div>
         <div class="field" data-role="yerr"><label for="mapYerr" data-i18n="map.yerr">Y error</label><select id="mapYerr"></select></div>
@@ -350,5 +375,6 @@
 <script src="/static/icons.js"></script>
 <script src="/static/app.js"></script>
 <script src="/static/analysis.js"></script>
+<script src="/static/files.js"></script>
 </body>
 </html>
