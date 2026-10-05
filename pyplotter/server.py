@@ -440,6 +440,8 @@ def make_handler(app, port):
                   file=sys.stderr, flush=True)
 
         def _error(self, exc):
+            if isinstance(exc, ConnectionError):
+                return      # the page cancelled the request (e.g. a newer render replaced it): nothing to answer
             if isinstance(exc, MissingModules):
                 return self._json({'error': str(exc), 'code': 'missing_modules', 'modules': exc.ids}, 409)
             if isinstance(exc, ApiError):
@@ -574,6 +576,12 @@ def make_handler(app, port):
 class Server(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
+
+    def handle_error(self, request, client_address):
+        # A browser that closes a connection early (cancelled render, closed tab) is not an error.
+        if isinstance(sys.exc_info()[1], ConnectionError):
+            return
+        super().handle_error(request, client_address)
 
 
 def serve(port, token, session_dir, open_browser=True, max_upload_gb=20, online=True, quiet=False):
