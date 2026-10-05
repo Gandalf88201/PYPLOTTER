@@ -340,13 +340,13 @@ window.Analysis = (() => {
         const plot = document.createElement('button');
         plot.className = res.overlays.length ? 'btn' : 'btn primary';
         plot.textContent = t('an.plot');
-        plot.title = t('an.plot_hint', { rows: res.dataset.rows.toLocaleString(), cols: res.dataset.columns.length });
+        plot.title = t('an.plot_hint', { rows: res.dataset.rows.toLocaleString(LOCALE()), cols: res.dataset.columns.length });
         plot.onclick = () => plotResult(res);
         bar.append(plot);
       }
       const note = document.createElement('span');
       note.className = 'small muted';
-      note.textContent = res.overlays.length ? t('an.overlay_hint') : t('an.plot_hint', { rows: res.dataset.rows.toLocaleString(), cols: res.dataset.columns.length });
+      note.textContent = res.overlays.length ? t('an.overlay_hint') : t('an.plot_hint', { rows: res.dataset.rows.toLocaleString(LOCALE()), cols: res.dataset.columns.length });
       bar.append(note);
       box.append(bar);
     }

@@ -16,6 +16,9 @@ const state = {
   renderSeq: 0, renderCtrl: null, renderTimer: null, fitDpi: 96, tab: 'figure', busyJob: null,
 };
 
+// Number formatting follows the interface language (1.161 in Italian, 1,161 in English).
+const LOCALE = () => (state.lang === 'it' ? 'it-IT' : 'en-US');
+
 const LINESTYLES = ['-', '--', ':', '-.'];
 const MARKERS = ['', 'o', 's', '^', 'v', 'D', 'x', '+', '*', '.'];
 const SCALES = ['linear', 'log', 'symlog', 'logit'];
@@ -694,7 +697,7 @@ function updateFigInfo() {
   const f = state.spec.figure;
   const fmt = $('#exportFormat').value;
   const { w, h } = figInches();
-  $('#figInfo').textContent = state.dataset ? `${f.width} × ${f.height} ${f.units} · ${state.dataset.rows.toLocaleString()} × ${state.dataset.columns.length}` : '';
+  $('#figInfo').textContent = state.dataset ? `${f.width} × ${f.height} ${f.units} · ${state.dataset.rows.toLocaleString(LOCALE())} × ${state.dataset.columns.length}` : '';
   const info = state.meta.export_formats[fmt] || {};
   let hint;
   if (fmt === 'html') hint = t('export.hint.html');
@@ -839,8 +842,56 @@ async function loadFile(file) {
     if (!ok) return null;
     info = await api('/api/file', { file_id: info.file_id });
   }
-  const ds = await api('/api/open', { file_id: info.file_id, table: info.tables[0], options: {} });
+  let ds = await api('/api/open', { file_id: info.file_id, table: info.tables[0], options: {} });
+  setUpload(false);
+  ds = await askConversion(ds, info, {});
   return { ds, info };
+}
+
+// Columns written like "1,003.3": ask before turning them into numbers; returns the data set to use.
+async function askConversion(ds, info, baseOptions) {
+  const sug = ((ds.options || {}).suggestions || []);
+  if (!sug.length || !info) return ds;
+  const dlg = $('#convertDialog');
+  $('#convertText').textContent = t('conv.text', { file: info.name });
+  const list = $('#convertList');
+  list.innerHTML = '';
+  sug.forEach(sg => {
+    const li = document.createElement('li');
+    const lab = document.createElement('label');
+    lab.className = 'check';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = true;
+    cb.dataset.col = sg.column;
+    cb.dataset.style = sg.style;
+    const b = document.createElement('b');
+    b.textContent = sg.column;
+    lab.append(cb, b);
+    const small = document.createElement('small');
+    small.textContent = t('conv.item', { example: sg.example, value: sg.value, count: sg.count.toLocaleString(LOCALE()),
+      rows: sg.rows.toLocaleString(LOCALE()), style: t('conv.style.' + sg.style) });
+    li.append(lab, small);
+    list.append(li);
+  });
+  const answer = await new Promise(resolve => {
+    dlg.onclose = () => resolve(dlg.returnValue || 'no');
+    dlg.returnValue = '';
+    dlg.showModal();
+  });
+  const convert = {};
+  $$('input[type=checkbox]', list).forEach(cb => {
+    convert[cb.dataset.col] = answer === 'yes' && cb.checked ? cb.dataset.style : 'none';
+  });
+  info.convert = convert;                  // remembered for this file (import options, reloads)
+  if (!Object.values(convert).some(v => v !== 'none')) {
+    ds.source = { ...ds.source, options: { ...(ds.source.options || {}), convert } };
+    return ds;
+  }
+  const table = (ds.source && ds.source.table) || info.tables[0];
+  const fresh = await api('/api/open', { file_id: info.file_id, table, options: { ...baseOptions, convert } });
+  toast(t('conv.done'));
+  return fresh;
 }
 
 function showFileControls(info) {
@@ -888,7 +939,7 @@ async function openFiles(files) {
   applyDataset(first.ds);
   setTab('figure');
   toast(loaded.length > 1 ? t('files.opened', { n: loaded.length })
-    : t('data.loaded', { rows: first.ds.rows.toLocaleString(), cols: first.ds.columns.length }));
+    : t('data.loaded', { rows: first.ds.rows.toLocaleString(LOCALE()), cols: first.ds.columns.length }));
 }
 
 const openFile = file => openFiles([file]);
@@ -907,6 +958,7 @@ function importOptions() {
     if (el.dataset.import === 'sep' && v === '\t') v = '\t';
     o[el.dataset.import] = el.dataset.import === 'skiprows' ? Number(v) : v;
   });
+  if (state.file && state.file.convert) o.convert = state.file.convert;
   return o;
 }
 
@@ -914,7 +966,8 @@ async function openTable(table) {
   if (!state.file) return;
   try {
     const old = state.dataset && state.dataset.dataset_id;
-    const ds = await api('/api/open', { file_id: state.file.file_id, table, options: importOptions() });
+    let ds = await api('/api/open', { file_id: state.file.file_id, table, options: importOptions() });
+    ds = await askConversion(ds, state.file, importOptions());
     Files.replace(old, ds, state.file);
     applyDataset(ds);
     setTab('figure');
@@ -924,7 +977,7 @@ async function openTable(table) {
       const sepSel = $('[data-import="sep"]');
       sepSel.dataset.detected = o.sep;
     }
-    toast(t('data.loaded', { rows: ds.rows.toLocaleString(), cols: ds.columns.length }));
+    toast(t('data.loaded', { rows: ds.rows.toLocaleString(LOCALE()), cols: ds.columns.length }));
   } catch (e) {
     handleError(e, () => openTable(table));
   }
@@ -1020,7 +1073,7 @@ function buildTable() {
   box.innerHTML = '';
   const note = document.createElement('div');
   note.className = 'table-note';
-  note.textContent = `${t('data.loaded', { rows: ds.rows.toLocaleString(), cols: ds.columns.length })}` +
+  note.textContent = `${t('data.loaded', { rows: ds.rows.toLocaleString(LOCALE()), cols: ds.columns.length })}` +
     (ds.rows > ds.preview.length ? ` — 1–${ds.preview.length}` : '');
   box.append(note, table);
 }

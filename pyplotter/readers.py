@@ -62,28 +62,81 @@ def unique_names(names):
     return out
 
 
-def tidy(df):
-    """Unique string column names, no fully empty rows/columns, datetimes recognised."""
+# A number as text, possibly with thousands groups: 12  -3.5  1,003.3  1.003,3  1 003,3  2.5e-3
+NUMBER_TEXT = re.compile(r"\s*[+\-\u2212]?(?:\d{1,3}(?:[,.\u00a0\u202f' ]\d{3})+|\d*)(?:[.,]\d+)?(?:[eE][+\-]?\d+)?\s*")
+_GROUPS_COMMA = re.compile(r"(?<=\d)[,\u00a0\u202f' ](?=\d{3}(?!\d))")     # 1,003.3  1 003.3  1'003.3
+_GROUPS_DOT = re.compile(r"(?<=\d)[.\u00a0\u202f' ](?=\d{3}(?!\d))")       # 1.003,3  1 003,3
+THOUSANDS_STYLES = ('comma', 'dot')      # comma: 1,234.5   dot: 1.234,5
+
+
+def _clean(s):
+    return s.astype('string').str.strip().str.replace('\u2212', '-', regex=False)
+
+
+def to_number(s, style=None):
+    """Text → float. style None: plain numbers only; 'comma': 1,234.5; 'dot': 1.234,5 (NaN where impossible)."""
+    txt = _clean(s)
+    if style == 'comma':
+        txt = txt.str.replace(_GROUPS_COMMA, '', regex=True)
+    elif style == 'dot':
+        txt = txt.str.replace(_GROUPS_DOT, '', regex=True).str.replace(',', '.', regex=False)
+    return pd.to_numeric(txt, errors='coerce').astype(float)
+
+
+def _spread(s, n=1000):
+    """Up to n values taken across the whole column (not only its first rows)."""
+    s = s.dropna().astype(str)
+    return s if len(s) <= n else s.iloc[::max(1, len(s) // n)]
+
+
+def tidy(df, decimal='.', convert=None, report=None):
+    """Unique string column names, no fully empty rows/columns, numbers and datetimes recognised.
+
+    Plain numbers are converted automatically. Numbers written with thousands separators
+    ("1,003.3") are converted only when ``convert`` says so ({column or '*': 'comma'|'dot'|'none'});
+    otherwise they are listed in ``report`` so that the interface can ask the user.
+    """
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = [' / '.join(str(p) for p in c if str(p) != '' and not str(p).startswith('Unnamed')) for c in df.columns]
     df = df.dropna(axis=1, how='all').dropna(axis=0, how='all')
     df.columns = unique_names(df.columns)
+    convert = convert or {}
     for c in df.columns:
         s = df[c]
-        if pd.api.types.is_object_dtype(s) or pd.api.types.is_string_dtype(s):
-            sample = s.dropna().astype(str).head(200)
-            if len(sample) and sample.str.fullmatch(r'\s*[+-]?[\d.,eE+-]+\s*').mean() > 0.95:
-                num = pd.to_numeric(s, errors='coerce')
-                if num.notna().sum() >= 0.95 * s.notna().sum():
-                    df[c] = num
-                    continue
-            if len(sample) and sample.str.contains(r'\d[-/:.]\d', regex=True).mean() > 0.9:
-                try:
-                    parsed = pd.to_datetime(s, errors='coerce', format='mixed')
-                except (TypeError, ValueError):
-                    continue
-                if parsed.notna().sum() >= 0.9 * s.notna().sum():
-                    df[c] = parsed
+        if not (pd.api.types.is_object_dtype(s) or pd.api.types.is_string_dtype(s)):
+            continue
+        sample = _spread(s)
+        if not len(sample):
+            continue
+        looks_numeric = sample.str.fullmatch(NUMBER_TEXT).mean() > 0.95 and sample.str.contains(r'\d').mean() > 0.95
+        if looks_numeric:
+            n = s.notna().sum()
+            plain = to_number(s)
+            if plain.notna().sum() >= 0.95 * n:
+                df[c] = plain
+                continue
+            choice = convert.get(c, convert.get('*'))
+            if choice in THOUSANDS_STYLES:
+                df[c] = to_number(s, choice)
+                continue
+            if choice == 'none' or report is None:
+                continue
+            for style in (THOUSANDS_STYLES if decimal != ',' else THOUSANDS_STYLES[::-1]):
+                num = to_number(s, style)
+                if num.notna().sum() >= 0.95 * n:
+                    examples = s[plain.isna() & num.notna()].astype(str)
+                    report.append({'column': c, 'style': style, 'count': int((plain.isna() & num.notna()).sum()),
+                                   'rows': int(n), 'example': examples.iloc[0] if len(examples) else '',
+                                   'value': float(num[plain.isna() & num.notna()].iloc[0]) if len(examples) else None})
+                    break
+            continue                       # numeric-looking text is never read as dates
+        if sample.str.contains(r'\d[-/:.]\d', regex=True).mean() > 0.9:
+            try:
+                parsed = pd.to_datetime(s, errors='coerce', format='mixed')
+            except (TypeError, ValueError):
+                continue
+            if parsed.notna().sum() >= 0.9 * s.notna().sum():
+                df[c] = parsed
     if df.size > MAX_CELLS:
         raise ValueError(f'The table has {df.size:,} cells; the limit is {MAX_CELLS:,}.')
     return df.reset_index(drop=True)
@@ -135,13 +188,13 @@ def sniff_text(path, compression=None):
 
     sep = None
     for cand in SEPARATORS:
-        counts = [l.count(cand) for l in body[:100]]
+        counts = [_fields(l, cand) - 1 for l in body[:100]]
         if counts[0] > 0 and min(counts) == max(counts):
             sep = cand
             break
     if sep is None:
         for cand in SEPARATORS:                  # tolerate a few ragged rows
-            counts = [l.count(cand) for l in body[:100]]
+            counts = [_fields(l, cand) - 1 for l in body[:100]]
             if counts[0] > 0 and sum(c == counts[0] for c in counts) >= 0.9 * len(counts):
                 sep = cand
                 break
@@ -171,6 +224,14 @@ def sniff_text(path, compression=None):
             'encoding': encoding, 'comment': comment, 'names': names}
 
 
+def _fields(line, sep):
+    """Number of fields in a line, ignoring separators inside quotes ("1,003.3")."""
+    try:
+        return len(next(csv.reader([line], delimiter=sep)))
+    except (csv.Error, StopIteration):
+        return line.count(sep) + 1
+
+
 def read_text(path, compression=None, options=None):
     detected = sniff_text(path, compression)
     opts = dict(detected)
@@ -195,7 +256,10 @@ def read_text(path, compression=None, options=None):
     df = pd.read_csv(path, **kwargs)
     if opts['header'] is None and not opts.get('names'):
         df.columns = [f'col{i + 1}' for i in range(df.shape[1])]
-    return tidy(df), opts
+    report = []
+    df = tidy(df, opts['decimal'], (options or {}).get('convert'), report)
+    opts['suggestions'] = report
+    return df, opts
 
 
 # ------------------------------------------------------------------ JCAMP-DX (spectra)
@@ -395,7 +459,10 @@ def read_table(path, fmt, table=None, options=None, compression=None):
         return _read_zip_member(path, table, options)
     else:
         raise ValueError(f'Unsupported format: {fmt}')
-    return tidy(df), used
+    report = []
+    df = tidy(df, convert=options.get('convert'), report=report)
+    used['suggestions'] = report
+    return df, used
 
 
 def _read_json(path, compression):

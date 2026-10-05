@@ -101,6 +101,33 @@ class TestReaders(TempDir):
         self.assertEqual(list(df.columns), ['Tempo', 'Valore'])
         self.assertAlmostEqual(df['Valore'].iloc[2], 3.75)
 
+    def test_thousands_separators_are_asked(self):
+        # MONET-style export: numbers from 1000 on are quoted with a thousands comma
+        rows = ['# Vibrational density of states', 'Wavenumber (cm⁻¹),VDOS']
+        rows += [f'{x:.2f},{x / 1e4:.6f}' for x in (0, 500, 999.83)]
+        rows += [f'"{x:,.1f}",{x / 1e4:.6f}' for x in (1003.3, 2500.0, 3999.3)]
+        p = self.write('vdos.csv', '\n'.join(rows) + '\n')
+        df, opts = readers.read_table(p, 'text')
+        self.assertFalse(pd.api.types.is_float_dtype(df.iloc[:, 0]))       # not converted silently…
+        sug = opts['suggestions']
+        self.assertEqual((sug[0]['column'], sug[0]['style'], sug[0]['count']), ('Wavenumber (cm⁻¹)', 'comma', 3))
+        self.assertEqual((sug[0]['example'], sug[0]['value']), ('1,003.3', 1003.3))
+        df, opts = readers.read_table(p, 'text', options={'convert': {'Wavenumber (cm⁻¹)': 'comma'}})
+        self.assertTrue(pd.api.types.is_float_dtype(df.iloc[:, 0]))         # …only when the user agrees
+        self.assertAlmostEqual(df.iloc[-1, 0], 3999.3)
+        self.assertEqual(opts['suggestions'], [])
+        # European style 1.234,5 and the typographic minus
+        p = self.write('eu.csv', 'a;b\n"1.234,5";1\n"2.000,25";2\n"\u22123,5";3\n')
+        df, opts = readers.read_table(p, 'text')
+        self.assertEqual(opts['suggestions'][0]['style'], 'dot')
+        df, _ = readers.read_table(p, 'text', options={'convert': {'*': 'dot'}})
+        self.assertEqual(list(df['a']), [1234.5, 2000.25, -3.5])
+        # decimals with a dot are numbers, not dates; ISO dates stay dates
+        p = self.write('dots.csv', 'x,y\n' + ''.join(f'{i / 7:.4f},{i}\n' for i in range(50)))
+        df, opts = readers.read_table(p, 'text')
+        self.assertTrue(pd.api.types.is_float_dtype(df['x']))
+        self.assertEqual(opts['suggestions'], [])
+
     def test_whitespace_with_comment_header(self):
         p = self.write('spec.dat', '# measured 2024\n# wl  abs\n400 0.1\n401 0.2\n402 0.15\n')
         df, opts = readers.read_table(p, 'text')

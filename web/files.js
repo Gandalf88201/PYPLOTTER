@@ -113,7 +113,7 @@ window.Files = (() => {
       name.textContent = e.name;
       const meta = document.createElement('span');
       meta.className = 'meta';
-      meta.textContent = `${e.ds.rows.toLocaleString()}×${e.ds.columns.length}`;
+      meta.textContent = `${e.ds.rows.toLocaleString(LOCALE())}×${e.ds.columns.length}`;
       const x = document.createElement('button');
       x.className = 'x';
       x.type = 'button';

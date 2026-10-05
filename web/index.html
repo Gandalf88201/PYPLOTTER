@@ -317,6 +317,19 @@
   </form>
 </dialog>
 
+<dialog id="convertDialog" class="dialog">
+  <form method="dialog" class="dlg">
+    <h2 data-i18n="conv.title">Numbers with thousands separators</h2>
+    <p class="small" id="convertText"></p>
+    <ul class="mod-list" id="convertList"></ul>
+    <p class="tiny muted" data-i18n="conv.note">If you leave them as text, those rows are missing from numeric plots.</p>
+    <div class="dlg-actions">
+      <button class="btn" value="no" id="convertNo" data-i18n="conv.no">Leave as text</button>
+      <button class="btn primary" value="yes" id="convertYes" data-i18n="conv.yes">Convert to numbers</button>
+    </div>
+  </form>
+</dialog>
+
 <dialog id="modulesDialog" class="dialog wide">
   <div class="dlg">
     <div class="dlg-head">
