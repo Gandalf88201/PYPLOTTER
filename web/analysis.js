@@ -109,6 +109,7 @@ window.Analysis = (() => {
   function renderMain(id) {
     A.current = id;
     $$('#anList .an-item').forEach(b => b.classList.toggle('active', b.dataset.id === id));
+    scrollToActive();
     const p = plugin();
     const main = $('#anMain');
     main.innerHTML = '';
@@ -180,6 +181,17 @@ window.Analysis = (() => {
   }
   function forget(id) {
     Object.keys(A.results).forEach(k => { if (k.startsWith(id + '|')) delete A.results[k]; });
+  }
+
+  // The list scrolls inside its own box: keep the chosen analysis in view (below the sticky heading).
+  function scrollToActive() {
+    const box = $('#anList');
+    const b = box && $('.an-item.active', box);
+    if (!b) return;
+    const head = $('.an-cat', box);
+    const top = b.offsetTop - (head ? head.offsetHeight : 0);
+    if (top < box.scrollTop) box.scrollTop = top;
+    else if (b.offsetTop + b.offsetHeight > box.scrollTop + box.clientHeight) box.scrollTop = b.offsetTop + b.offsetHeight - box.clientHeight;
   }
 
   function plugin() { return A.list.plugins.find(p => p.id === A.current); }
