@@ -136,6 +136,7 @@
       <div class="tabs">
         <button class="tab active" data-tab="figure" data-i18n="tab.figure">Figure</button>
         <button class="tab" data-tab="table" data-i18n="tab.table">Data table</button>
+        <span class="view-tabs" id="viewTabs"></span>
         <span class="figinfo muted small" id="figInfo"></span>
       </div>
       <div class="stage" id="stage">
@@ -161,7 +162,7 @@
       <summary data-i18n="tab.analysis">Analysis</summary>
       <p class="small muted" id="anEmpty" data-i18n="an.need_data">Open data to analyse it.</p>
       <div id="anBody" hidden>
-        <div class="an-list" id="anList" role="listbox" data-i18n-title="an.choose"></div>
+        <div class="an-list" id="anList"></div>
         <div id="anMain"></div>
         <div id="anErrors"></div>
         <div class="an-tools">

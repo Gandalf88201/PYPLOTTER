@@ -48,8 +48,9 @@ printed in the terminal window. Options:
   colour/label/line/marker, fonts and sizes in points, LaTeX-style math (`$\alpha$`, `$10^{-3}$`),
   log/symlog scales, limits, ticks (in/out, minor, mirrored), grid, frame, legend inside/outside.
   Style templates can be saved and loaded as JSON.
-- **Analysis** panel in the right sidebar, above *Export* — the figure stays open and results are drawn
-  on it (all through open-source Python modules, results with the references to cite):
+- **Analysis** panel in the right sidebar, above *Export* — the figure stays open, the results (numbers,
+  tables, references) stay in the panel, and curves are drawn on a copy of the figure (all through
+  open-source Python modules, results with the references to cite):
   - *fitting* — 15 models (exponential, double, stretched/KWW, power, Gaussian, Lorentzian, Voigt,
     logistic, Hill, Michaelis–Menten, Arrhenius, sine, polynomials) or your own formula, weighted by an
     error column, with standard errors, 95 % CIs, R², adjusted R², RMSE, χ²_red, AIC, BIC (SciPy);
@@ -62,9 +63,11 @@ printed in the terminal window. Options:
     distribution fitting ranked by AIC;
   - *signal* — Savitzky–Golay smoothing and derivatives, power spectrum, peak finding (FWHM, area),
     integrals.
-  Results can be **overlaid on the original figure** with their error bands (95 % confidence or
-  prediction band of fits and regressions, mean ± SEM of block averaging, smoothed curves, peak
-  markers) — a fit weighted by an error column also shows the data with those error bars — or
+  Results are **drawn on a copy of the original figure**, in its own tab next to *Figure* (close it
+  with ×; the original is never changed), with their error bands (95 % confidence or prediction band
+  of fits and regressions, mean ± SEM of block averaging, smoothed curves, peak markers) — a fit
+  weighted by an error column also shows the data with those error bars. Analyses run while a copy is
+  open are added to it; each copy has its own style and exports like any figure. A result can also be
   plotted as a new, fully styleable figure.
 - **Several files**: open many files at once (or one after another). Files opened together are drawn
   in the same graph, one colour and legend entry per file; *Combine files* chooses which files, columns
@@ -128,15 +131,18 @@ con un solo pulsante e una barra di avanzamento. Tieni aperta la finestra del te
 - Esportazione alle dimensioni esatte delle colonne delle riviste: PNG/TIFF/JPEG fino a 1200 DPI,
   PDF/SVG/EPS vettoriali con testo modificabile, HTML interattivo e uno ZIP con script Python che
   ricrea la figura, completo dei riferimenti da citare.
-- Riquadro **Analisi** nella barra di destra, sopra *Esporta* (il grafico resta aperto e i risultati vi si
-  sovrappongono): fit (15 modelli o formula libera, con errori, intervalli di confidenza, R², AIC),
+- Riquadro **Analisi** nella barra di destra, sopra *Esporta* (il grafico resta aperto e i risultati
+  numerici restano visibili nel riquadro): fit (15 modelli o formula libera, con errori, intervalli di confidenza, R², AIC),
   autocorrelazione e PACF, tempo di correlazione, block averaging per l'errore di dati correlati (es. MD),
   correlazione incrociata, statistica descrittiva, test di normalità, confronto tra gruppi (t-test,
   ANOVA, Kruskal–Wallis, Tukey…), correlazioni, regressione e ANOVA con formule, fit di distribuzioni,
   smoothing, derivate, spettro, picchi, integrali — sempre con moduli Python open source e i riferimenti
-  da citare. I risultati si possono **sovrapporre al grafico originale** con le loro bande d'errore
-  (confidenza o predizione al 95% di fit e regressioni, media ± SEM del block averaging, curve filtrate,
-  picchi; un fit pesato mostra anche le barre d'errore dei dati) oppure tracciare come nuova figura.
+  da citare. I risultati vengono disegnati **su una copia del grafico originale**, in una scheda accanto a
+  *Figura* che si chiude con × (l'originale non cambia mai), con le loro bande d'errore (confidenza o
+  predizione al 95% di fit e regressioni, media ± SEM del block averaging, curve filtrate, picchi; un fit
+  pesato mostra anche le barre d'errore dei dati). Le analisi eseguite con una copia aperta si aggiungono
+  a quella copia, che ha il proprio stile e si esporta come ogni figura. Un risultato si può anche
+  tracciare come nuova figura.
 - **Più file**: apri più file insieme (o uno dopo l'altro). I file aperti insieme vengono disegnati nello
   stesso grafico, un colore e una voce di legenda per file; *Combina file* sceglie file, colonne ed errori
   da includere, oppure passa a **un pannello per file** (assi condivisi, lettere (a), (b)…, nomi dei file

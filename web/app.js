@@ -14,6 +14,7 @@ const state = {
   meta: null, status: null, defaults: null, spec: null,
   file: null, dataset: null, source: null, recommend: [], history: [],
   renderSeq: 0, renderCtrl: null, renderTimer: null, fitDpi: 96, tab: 'figure', busyJob: null,
+  views: [], view: null, mainSpec: null,   // copies of the figure with analyses on them (see "figure copies")
 };
 
 // Number formatting follows the interface language (1.161 in Italian, 1,161 in English).
@@ -67,6 +68,7 @@ function setLang(lang) {
   if ($('#modulesDialog').open) renderModules();
   if (window.Analysis) { window.Analysis.relabel(); window.Analysis.updateDerived(); }
   if (window.Files) Files.render();
+  renderViewTabs();
   if (state.dataset) scheduleRender();
 }
 
@@ -776,6 +778,7 @@ function resetDataSpec(mapping) {
 }
 
 function applyDataset(ds, keepSpec = false) {
+  if (!keepSpec) stashViews();   // copies belong to the data they were made from
   state.dataset = ds;
   state.source = ds.source;
   if (!ds.source || !ds.source.analysis) state.history = [];
@@ -1009,6 +1012,7 @@ async function reopenSource() {
 }
 
 function clearDataset(message) {
+  stashViews();
   state.dataset = null;
   state.source = null;
   state.file = null;
@@ -1081,13 +1085,103 @@ function buildTable() {
 
 function setTab(tab) {
   state.tab = tab;
-  $$('.tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  $$('.tab[data-tab]').forEach(b => b.classList.toggle('active', b.dataset.tab === tab && (tab !== 'figure' || !state.view)));
+  renderViewTabs();
   const hasData = !!state.dataset;
   $('#tableBox').hidden = tab !== 'table' || !hasData;
   $('#figureBox').hidden = tab !== 'figure' || !hasData;
   $('#emptyState').hidden = hasData;
   if (tab !== 'figure') $('#errorBox').hidden = true;
   if (tab === 'figure') scheduleRender(0);
+}
+
+// ------------------------------------------------------------------ figure copies
+// Analyses are drawn on a copy of the figure, never on the original. Each copy has its own spec
+// (layers, style, mapping) and its own tab, closed with ×. While a copy is shown, state.spec is the
+// copy's spec and the original one waits in state.mainSpec.
+const localName = obj => (obj && typeof obj === 'object') ? (obj[state.lang] || obj.en || '') : (obj ?? '');
+
+function viewTitle(v) {
+  return `${t('tab.figure')} + ${v.runs.map(r => localName(r.name)).join(' + ')}`;
+}
+
+function renderViewTabs() {
+  const box = $('#viewTabs');
+  if (!box) return;
+  box.innerHTML = '';
+  state.views.forEach(v => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'tab view-tab' + (state.tab === 'figure' && state.view === v.id ? ' active' : '');
+    const label = document.createElement('span');
+    label.className = 'view-label';
+    label.textContent = viewTitle(v);
+    b.title = viewTitle(v);
+    const x = document.createElement('span');
+    x.className = 'view-close';
+    x.textContent = '×';
+    x.title = t('view.close');
+    x.setAttribute('role', 'button');
+    x.setAttribute('aria-label', t('view.close'));
+    x.onclick = e => { e.stopPropagation(); closeView(v.id); };
+    b.append(label, x);
+    b.onclick = () => showView(v.id);
+    box.append(b);
+  });
+}
+
+function refreshSpecUI() {
+  syncControls();
+  updatePalettePreview();
+  buildKindGallery();
+  buildKindOptions();
+  buildMapping(true);
+  buildSeries();
+  updateFigInfo();
+}
+
+// Show the original figure (id null) or one of its copies.
+function showView(id) {
+  const v = id ? state.views.find(x => x.id === id) : null;
+  if ((v ? v.id : null) !== state.view) {
+    if (!state.view) state.mainSpec = state.spec;
+    state.view = v ? v.id : null;
+    state.spec = v ? v.spec : state.mainSpec;
+    if (!v) state.mainSpec = null;
+    refreshSpecUI();
+  }
+  setTab('figure');
+}
+
+// A new copy of the original figure (not shown yet).
+function newView() {
+  const v = { id: Math.random().toString(16).slice(2, 10), spec: clone(state.view ? state.mainSpec : state.spec), runs: [] };
+  v.spec.overlays = (v.spec.overlays || []).filter(o => !o.analysis_run);
+  state.views.push(v);
+  return v;
+}
+
+function closeView(id) {
+  const i = state.views.findIndex(v => v.id === id);
+  if (i < 0) return;
+  const shown = state.view === id;
+  if (shown) showView(null);
+  state.views.splice(i, 1);
+  renderViewTabs();
+  if (window.Analysis) window.Analysis.viewsChanged();
+}
+
+// Leave the copies (back to the original spec) and hand them over, e.g. to keep them in the history.
+function stashViews() {
+  const saved = state.views;
+  if (state.view) {
+    state.spec = state.mainSpec;
+    state.mainSpec = null;
+    state.view = null;
+  }
+  state.views = [];
+  renderViewTabs();
+  return saved;
 }
 
 // ------------------------------------------------------------------ export & templates
@@ -1325,7 +1419,7 @@ function bindApp() {
   $('#btnExport').onclick = exportFigure;
   $('#btnSaveTpl').onclick = saveTemplate;
   $('#tplInput').onchange = e => { if (e.target.files[0]) loadTemplate(e.target.files[0]); e.target.value = ''; };
-  $$('.tab').forEach(b => { b.onclick = () => setTab(b.dataset.tab); });
+  $$('.tab[data-tab]').forEach(b => { b.onclick = () => (b.dataset.tab === 'figure' ? showView(null) : setTab(b.dataset.tab)); });
   let resizeTimer = null;
   window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => scheduleRender(0), 250); });
   // drag & drop anywhere

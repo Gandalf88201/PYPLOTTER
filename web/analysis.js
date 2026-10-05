@@ -4,7 +4,7 @@
 'use strict';
 
 window.Analysis = (() => {
-  const A = { list: null, current: null, params: {}, result: null, editing: null };
+  const A = { list: null, current: null, params: {}, results: {}, editing: null };
   const CATS = ['fit', 'timeseries', 'stats', 'signal', 'custom'];
   const L = obj => (obj && typeof obj === 'object') ? (obj[state.lang] || obj.en || '') : (obj ?? '');
 
@@ -29,10 +29,9 @@ window.Analysis = (() => {
     if (!A.current || !A.list.plugins.some(p => p.id === A.current)) {
       A.current = (A.list.plugins.find(p => p.id === 'fit_curve') || A.list.plugins[0] || {}).id || null;
     }
-    if (A.current) renderMain(A.current, true);
+    if (A.current) renderMain(A.current);
   }
 
-  // Every analysis stays visible: one row of chips per category; the chosen one is highlighted.
   function renderList() {
     const box = $('#anList');
     box.innerHTML = '';
@@ -41,30 +40,25 @@ window.Analysis = (() => {
       if (!items.length) return;
       const h = document.createElement('div');
       h.className = 'an-cat';
-      h.textContent = `${t('an.cat.' + cat)} (${items.length})`;
-      const row = document.createElement('div');
-      row.className = 'an-chips';
+      h.textContent = t('an.cat.' + cat);
+      box.append(h);
       items.forEach(p => {
         const b = document.createElement('button');
         b.type = 'button';
-        b.className = 'an-chip' + (p.id === A.current ? ' active' : '');
+        b.className = 'an-item' + (p.id === A.current ? ' active' : '');
         b.dataset.id = p.id;
-        b.textContent = L(p.name);
-        let tip = L(p.description);
-        if (p.missing.length) {
-          b.classList.add('need');
-          b.textContent += ' ↓';
-          tip += '\n' + t('an.needs', { mods: p.missing.join(', ') });
-        } else if (p.source === 'user') {
-          b.classList.add('user');
-          b.textContent += ` · ${p.overrides ? t('an.custom') : t('an.user')}`;
-          tip += `\n${p.file}`;
-        }
-        b.title = tip;
+        const name = document.createElement('span');
+        name.textContent = L(p.name);
+        b.append(name);
+        const tag = document.createElement('span');
+        tag.className = 'tag';
+        if (p.missing.length) { tag.classList.add('need'); tag.textContent = '↓ ' + p.missing.join(', '); }
+        else if (p.source === 'user') { tag.classList.add('user'); tag.textContent = p.overrides ? t('an.custom') : t('an.user'); }
+        b.append(tag);
+        b.title = L(p.description);
         b.onclick = () => renderMain(p.id);
-        row.append(b);
+        box.append(b);
       });
-      box.append(h, row);
     });
     const err = $('#anErrors');
     err.innerHTML = '';
@@ -112,9 +106,9 @@ window.Analysis = (() => {
     return d ?? (prm.type === 'bool' ? false : '');
   }
 
-  function renderMain(id, keepResult = false) {
+  function renderMain(id) {
     A.current = id;
-    $$('#anList .an-chip').forEach(b => b.classList.toggle('active', b.dataset.id === id));
+    $$('#anList .an-item').forEach(b => b.classList.toggle('active', b.dataset.id === id));
     const p = plugin();
     const main = $('#anMain');
     main.innerHTML = '';
@@ -159,7 +153,7 @@ window.Analysis = (() => {
     rst.className = 'btn';
     rst.textContent = t('an.reset');
     rst.title = t('an.reset_hint');
-    rst.onclick = () => { A.result = null; delete A.params[paramKey(id)]; renderMain(id); };
+    rst.onclick = () => { forget(id); delete A.params[paramKey(id)]; renderMain(id); };
     actions.append(run, rst);
     if (p.missing.length) {
       const note = document.createElement('span');
@@ -172,8 +166,20 @@ window.Analysis = (() => {
     res.className = 'an-results';
     res.id = 'anResults';
     main.append(res);
-    if (keepResult && A.result && A.result.plugin.id === id && state.dataset &&
-        A.result.analysed_dataset === state.dataset.dataset_id) renderResult(A.result);
+    const kept = resultFor(id);
+    if (kept) renderResult(kept);
+  }
+
+  // Results are kept per analysis and per data set, so they stay on screen after drawing them on a
+  // copy of the figure, after plotting a result and coming back, or after looking at another analysis.
+  const resultKey = (id, dsId) => `${id}|${dsId}`;
+  function resultFor(id) {
+    const ids = [state.dataset, ...state.history.map(h => h.dataset)].filter(Boolean).map(d => d.dataset_id);
+    for (const dsId of ids) if (A.results[resultKey(id, dsId)]) return A.results[resultKey(id, dsId)];
+    return null;
+  }
+  function forget(id) {
+    Object.keys(A.results).forEach(k => { if (k.startsWith(id + '|')) delete A.results[k]; });
   }
 
   function plugin() { return A.list.plugins.find(p => p.id === A.current); }
@@ -270,9 +276,9 @@ window.Analysis = (() => {
     try {
       const res = await api('/api/analyses/run', { dataset_id: state.dataset.dataset_id, id: p.id, params,
         spec: specForServer(), lang: state.lang });
-      A.result = res;
-      if (res.overlays.length) showOnFigure(res, true);
+      A.results[resultKey(p.id, res.analysed_dataset)] = res;
       renderResult(res);
+      if (res.overlays.length) showOnCopy(res);
     } catch (e) {
       if (e.code === 'missing_modules') {
         if (await ensureModules(e.data.modules)) { await load(true); renderList(); return runAnalysis(btn); }
@@ -356,7 +362,8 @@ window.Analysis = (() => {
     box.append(det);
   }
 
-  const onFigure = res => (state.spec.overlays || []).some(o => o.analysis_run === res.plugin.id);
+  // The copy of the figure that shows this result, if one is open.
+  const copyOf = res => state.views.find(v => v.runs.some(r => r.run === res.run_id));
 
   function renderResult(res) {
     const box = $('#anResults');
@@ -365,17 +372,13 @@ window.Analysis = (() => {
     const bar = document.createElement('div');
     bar.className = 'an-actions';
     if (res.overlays.length) {
-      const lab = document.createElement('label');
-      lab.className = 'check';
-      const cb = document.createElement('input');
-      cb.type = 'checkbox';
-      cb.checked = onFigure(res);
-      cb.onchange = () => showOnFigure(res, cb.checked);
-      const sp = document.createElement('span');
-      sp.textContent = t('an.on_figure');
-      lab.append(cb, sp);
-      lab.title = t('an.overlay_hint');
-      bar.append(lab);
+      const v = copyOf(res);
+      const ov = document.createElement('button');
+      ov.className = 'btn small primary';
+      ov.textContent = v ? t('an.goto_copy') : t('an.overlay');
+      ov.title = t('an.overlay_hint');
+      ov.onclick = () => (v && state.views.includes(v) ? showView(v.id) : showOnCopy(res));
+      bar.append(ov);
     }
     if (res.dataset) {
       const plot = document.createElement('button');
@@ -410,46 +413,55 @@ window.Analysis = (() => {
     }
   }
 
-  // Overlay descriptor for the figure spec; gets a fixed colour so the panel shows the real one.
-  const stripOverlay = (o, res, index) => {
+  // Overlay descriptor for a figure spec; gets a fixed colour so the panel shows the real one.
+  const stripOverlay = (o, res, spec, index) => {
     const { dataset, ...rest } = o;
     const out = { ...clone(rest), id: Math.random().toString(16).slice(2, 12), analysis_run: res.plugin.id,
       source_name: `${L(res.plugin.name)} · ${state.dataset ? state.dataset.name : ''}` };
     out.style = out.style || {};
-    const pal = state.meta.palettes[state.spec.style.palette] || [];
-    if (!out.style.color && pal.length) out.style.color = pal[(state.spec.y.length + index) % pal.length];
+    const pal = state.meta.palettes[spec.style.palette] || [];
+    if (!out.style.color && pal.length) out.style.color = pal[(spec.y.length + index) % pal.length];
     return out;
   };
 
-  // Draw (or remove) the result's curves and bands on the open figure; a new run replaces the old layers.
-  function showOnFigure(res, on) {
+  // Draw the result's curves and bands on a copy of the figure (the original stays as it is).
+  // The copy on screen gets the layers; otherwise the copy already showing this analysis, otherwise a
+  // new copy. Running the same analysis again replaces its layers.
+  function showOnCopy(res) {
     if (!state.dataset || state.dataset.dataset_id !== res.analysed_dataset) {
-      if (on) toast(t('ov.other_data'), true);
+      toast(t('ov.other_data'), true);
       return;
     }
-    const s = state.spec;
+    if (!res.run_id) res.run_id = Math.random().toString(16).slice(2, 10);
+    const v = state.views.find(x => x.id === state.view)
+      || [...state.views].reverse().find(x => x.runs.some(r => r.id === res.plugin.id))
+      || newView();
+    const s = v.spec;
     s.overlays = (s.overlays || []).filter(o => o.analysis_run !== res.plugin.id);
-    if (on) {
-      res.overlays.forEach(o => s.overlays.push(stripOverlay(o, res, s.overlays.length)));
-      // A fit weighted by an error column: show the data with those error bars.
-      const sigma = res.params && (res.params.sigma || res.params.yerr);
-      if (sigma && !s.yerr && ['line', 'scatter', 'errorbar'].includes(s.kind)) {
-        s.kind = 'errorbar';
-        s.yerr = sigma;
-        s.series = s.series || {};
-        s.y.forEach(c => { s.series[c] = { ...(s.series[c] || {}), linestyle: 'none', marker: (s.series[c] || {}).marker || 'o' }; });
-        toast(t('ov.errors_used', { col: sigma }));
-        buildKindGallery();
-        buildKindOptions();
-        buildMapping(false);
-      }
+    res.overlays.forEach(o => s.overlays.push(stripOverlay(o, res, s, s.overlays.length)));
+    v.runs = v.runs.filter(r => r.id !== res.plugin.id);
+    v.runs.push({ id: res.plugin.id, name: res.plugin.name, run: res.run_id });
+    // A fit weighted by an error column: show the data with those error bars (on the copy only).
+    const sigma = res.params && (res.params.sigma || res.params.yerr);
+    if (sigma && !s.yerr && ['line', 'scatter', 'errorbar'].includes(s.kind)) {
+      s.kind = 'errorbar';
+      s.yerr = sigma;
+      s.series = s.series || {};
+      s.y.forEach(c => { s.series[c] = { ...(s.series[c] || {}), linestyle: 'none', marker: (s.series[c] || {}).marker || 'o' }; });
+      toast(t('ov.errors_used', { col: sigma }));
     }
-    buildSeries();
-    if (state.tab !== 'figure') setTab('figure'); else scheduleRender(0);
+    if (state.view === v.id) { refreshSpecUI(); setTab('figure'); } else showView(v.id);
+    viewsChanged();
+  }
+
+  // Keep the result buttons ("Show on a copy" / "Go to the copy") in step with the open copies.
+  function viewsChanged() {
+    const res = A.current && state.dataset ? resultFor(A.current) : null;
+    if (res && $('#anResults')) renderResult(res);
   }
 
   function reset() {
-    A.result = null;
+    A.results = {};
     if (A.current && state.dataset) delete A.params[paramKey(A.current)];
     const m = $('#anMain');
     if (m) m.innerHTML = '';
@@ -457,13 +469,14 @@ window.Analysis = (() => {
   }
 
   function plotResult(res) {
-    state.history.push({ dataset: state.dataset, spec: clone(state.spec), file: state.file });
+    const views = stashViews();
+    state.history.push({ dataset: state.dataset, spec: clone(state.spec), file: state.file, views });
     applyDataset(res.dataset);
     const pl = res.plot || {};
     const s = state.spec;
     ['kind', 'x', 'y', 'y2', 'hue', 'z', 'xerr', 'yerr'].forEach(k => { if (pl[k] !== undefined) s[k] = clone(pl[k]); });
     s.series = clone(pl.series || {});
-    s.overlays = (pl.overlays || []).map((o, i) => stripOverlay(o, res, i));
+    s.overlays = (pl.overlays || []).map((o, i) => stripOverlay(o, res, s, i));
     ['text', 'axes', 'style', 'legend'].forEach(k => { if (pl[k]) s[k] = merge(s[k], pl[k]); });
     syncControls();
     buildKindGallery();
@@ -478,10 +491,13 @@ window.Analysis = (() => {
     const prev = state.history.pop();
     if (!prev) return;
     const stack = state.history.slice();
+    stashViews();
     applyDataset(prev.dataset, true);
     state.history = stack;
     state.spec = prev.spec;
     state.file = prev.file;
+    state.views = prev.views || [];
+    renderViewTabs();
     syncControls();
     buildKindGallery();
     buildKindOptions();
@@ -586,5 +602,5 @@ window.Analysis = (() => {
   }
   bind();
 
-  return { show, updateDerived, load, renderList, reset, relabel: () => { if (A.list) show(); } };
+  return { show, updateDerived, load, renderList, reset, viewsChanged, relabel: () => { if (A.list) show(); } };
 })();

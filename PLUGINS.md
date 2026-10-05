@@ -68,9 +68,10 @@ Every parameter takes `label` and optional `help` (a string or `{'en': …, 'it'
 `show_if: {'model': ['custom']}` shows a parameter only when another parameter has one of the
 listed values (the custom-formula field of *Curve fitting* uses it).
 
-Analyses live in the **Analysis** panel of the right sidebar, above *Export*: the figure stays open
-and every overlay a result provides (`r.overlay`) is drawn on it as soon as the analysis runs;
-*Show on the figure* removes or restores those layers, and running the analysis again replaces them.
+Analyses live in the **Analysis** panel of the right sidebar, above *Export*: the figure stays open,
+the numbers stay in the panel, and every overlay a result provides (`r.overlay`) is drawn on a **copy
+of the figure** in its own tab (closed with ×) as soon as the analysis runs — the original figure is
+never changed. Running the analysis again replaces its layers on that copy.
 
 ### The `ctx` helper
 
@@ -87,7 +88,7 @@ figure: `kind`, `x`, `y`, `y2`, `yerr`, `series`, `text`, `axes`, `style`. Use t
 `'_nolegend_'` to hide a series from the legend.
 
 `r.overlay(frame, x, y, lo=None, hi=None, label=None, band_label=None, style=None)` adds a **layer
-that can be drawn over the original figure** (*Overlay on the figure*): the curve `x → y` and, if
+that is drawn on a copy of the original figure** (*Show on a copy of the figure*): the curve `x → y` and, if
 `lo`/`hi` are given, a shaded error band (e.g. the 95 % confidence band of a fit). Use the same x
 units as the analysed data. It returns an index that `r.data(..., plot={'overlays': [{'ref': i}]})`
 can use to draw the layer on the result figure too. The user can recolour, relabel, hide or remove
@@ -131,7 +132,7 @@ programma: gli aggiornamenti di PyPlotter non la toccano.
 La struttura, i tipi di parametro e l'oggetto `ctx` sono descritti sopra con un esempio completo.
 In sintesi: dichiara i parametri in `PLUGIN['params']` (PyPlotter genera il modulo), calcola in
 `run`, restituisci `ctx.result()` con valori, tabelle, testo, un eventuale nuovo insieme di dati da
-tracciare (`r.data(...)`), eventuali livelli da sovrapporre al grafico originale con la loro banda
+tracciare (`r.data(...)`), eventuali livelli da disegnare su una copia del grafico originale (scheda con ×) con la loro banda
 d'errore (`r.overlay(...)`) e i riferimenti da citare. Nota: una **copia personalizzata** di
 un'analisi inclusa non riceve gli aggiornamenti successivi di PyPlotter; disattivala per tornare
 alla versione aggiornata. Elenca in `requires` i moduli necessari (solo

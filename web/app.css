@@ -175,6 +175,12 @@ details.sub > summary { cursor: pointer; font-size: 12.5px; color: var(--muted);
 .tabs { display: flex; align-items: center; gap: 2px; padding: 6px 8px 0; border-bottom: 1px solid var(--border); }
 .tab { border: 0; background: transparent; padding: 7px 12px; cursor: pointer; color: var(--muted); font-weight: 600; border-bottom: 2px solid transparent; margin-bottom: -1px; }
 .tab.active { color: var(--text); border-bottom-color: var(--accent); }
+.view-tabs { display: contents; }
+.view-tab { display: inline-flex; align-items: center; gap: 6px; max-width: 260px; min-width: 0; flex: 0 1 auto; padding-right: 6px; }
+.view-tab .view-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.view-tab .view-close { display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 4px; font-size: 15px;
+  line-height: 1; color: var(--muted); flex: none; }
+.view-tab .view-close:hover { background: var(--danger-soft); color: var(--danger); }
 .figinfo { margin-left: auto; padding-right: 6px; font-family: var(--mono); font-size: 11.5px; }
 .stage { position: relative; flex: 1; min-height: 0; background: var(--stage); display: flex; align-items: center; justify-content: center; overflow: auto; }
 .empty { text-align: center; max-width: 440px; padding: 24px; }
@@ -277,15 +283,17 @@ pre { font-family: var(--mono); font-size: 11px; max-height: 200px; overflow: au
 }
 
 /* ---------------------------------------------------------------- analysis (right panel) */
-.an-list { margin: 2px 0 8px; }
-.an-cat { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; color: var(--muted); margin: 8px 0 4px; }
-.an-chips { display: flex; flex-wrap: wrap; gap: 4px; }
-.an-chip { font: inherit; font-size: 11.5px; line-height: 1.3; padding: 3px 8px; border-radius: 999px; cursor: pointer;
-  border: 1px solid var(--border); background: var(--panel-2); color: var(--text); text-align: left; }
-.an-chip:hover { border-color: var(--accent); }
-.an-chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
-.an-chip.need { border-style: dashed; }
-.an-chip.user:not(.active) { color: var(--accent); }
+.an-list { margin: 0 0 8px; }
+.an-cat { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 10px 4px 3px; font-weight: 650; }
+.an-cat:first-child { margin-top: 0; }
+.an-item { display: flex; align-items: center; gap: 6px; width: 100%; text-align: left; border: 1px solid transparent; background: none;
+  padding: 5px 8px; border-radius: 7px; cursor: pointer; color: var(--text); font: inherit; font-size: 12.5px; }
+.an-item:hover { background: var(--panel-2); }
+.an-item.active { background: var(--accent-soft); border-color: var(--accent); font-weight: 600; }
+.an-item .tag { margin-left: auto; font-size: 10px; font-family: var(--mono); color: var(--muted); white-space: nowrap; }
+.an-item .tag.user { color: var(--accent); }
+.an-item .tag.need { color: var(--warn); }
+.analysis-card #anMain { border-top: 1px solid var(--border); padding-top: 8px; }
 .analysis-card .an-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; margin-bottom: 6px; }
 .analysis-card .an-desc { font-size: 12px; color: var(--muted); margin: 0 0 8px; }
 .an-form { display: block; margin: 4px 0; }
