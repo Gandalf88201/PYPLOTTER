@@ -5,8 +5,10 @@ type: software
 version: 0.1.0
 date-released: 2026-10-05
 license: MIT
+repository-code: "https://github.com/Gandalf88201/PYPLOTTER"
 authors:
-  - name: "The PyPlotter authors"
+  - family-names: Francese
+    given-names: Tommaso
 keywords:
   - data visualization
   - scientific plotting
