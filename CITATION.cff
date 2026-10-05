@@ -1,0 +1,47 @@
+cff-version: 1.2.0
+message: "If you use PyPlotter, please cite it, and cite the packages that drew your figures (see REFERENCES.md)."
+title: "PyPlotter: publication-quality plots from any data file"
+type: software
+version: 0.1.0
+date-released: 2026-10-05
+license: MIT
+authors:
+  - name: "The PyPlotter authors"
+keywords:
+  - data visualization
+  - scientific plotting
+  - matplotlib
+  - publication figures
+references:
+  - type: article
+    title: "Matplotlib: A 2D Graphics Environment"
+    authors:
+      - family-names: Hunter
+        given-names: John D.
+    journal: "Computing in Science & Engineering"
+    volume: 9
+    start: 90
+    end: 95
+    year: 2007
+    doi: 10.1109/MCSE.2007.55
+  - type: article
+    title: "Array programming with NumPy"
+    authors:
+      - family-names: Harris
+        given-names: Charles R.
+    journal: Nature
+    volume: 585
+    start: 357
+    end: 362
+    year: 2020
+    doi: 10.1038/s41586-020-2649-2
+  - type: conference-paper
+    title: "Data Structures for Statistical Computing in Python"
+    authors:
+      - family-names: McKinney
+        given-names: Wes
+    collection-title: "Proceedings of the 9th Python in Science Conference"
+    start: 56
+    end: 61
+    year: 2010
+    doi: 10.25080/Majora-92bf1922-00a

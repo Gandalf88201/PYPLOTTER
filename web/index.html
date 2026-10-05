@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="pp-token" content="{{TOKEN}}">
+<title>PyPlotter</title>
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/app.css">
+<script src="/static/theme.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <svg viewBox="0 0 32 32" width="26" height="26" aria-hidden="true"><rect x="1.5" y="1.5" width="29" height="29" rx="7" fill="var(--accent)"/><path d="M7 23 L12 15 L16 19 L25 8" fill="none" stroke="var(--on-accent)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="15" r="1.9" fill="var(--on-accent)"/><circle cx="16" cy="19" r="1.9" fill="var(--on-accent)"/></svg>
+    <span class="brand-name">PyPlotter</span>
+    <span class="dataset-name" id="datasetName"></span>
+  </div>
+  <div class="top-actions">
+    <button class="btn ghost" id="btnModules" data-i18n-title="modules.title">
+      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 2 3 7v10l9 5 9-5V7z M3 7l9 5 9-5 M12 12v10" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+      <span data-i18n="modules.button">Modules</span><span class="badge" id="updatesBadge" hidden></span>
+    </button>
+    <button class="btn ghost" id="btnAbout" data-i18n-title="about.title">
+      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="12" cy="12" r="9.5" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M12 11v6M12 7.5v.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    </button>
+    <div class="seg" role="group" aria-label="Language">
+      <button data-lang="en">EN</button><button data-lang="it">IT</button>
+    </div>
+    <button class="btn ghost icon" id="btnTheme" data-i18n-title="theme.toggle">
+      <svg class="sun" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="12" cy="12" r="4.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M4.9 19.1l1.8-1.8M17.3 6.7l1.8-1.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      <svg class="moon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+    </button>
+  </div>
+</header>
+
+<div class="banner" id="restartBanner" hidden>
+  <span data-i18n="restart.message">Updated modules are used after a restart of the Python service.</span>
+  <button class="btn primary small" id="btnRestart" data-i18n="restart.button">Restart now</button>
+</div>
+
+<main class="layout" id="app" hidden>
+  <!-- ============ left: data ============ -->
+  <aside class="panel left">
+    <section class="card">
+      <h2 data-i18n="data.title">Data</h2>
+      <label class="drop" id="dropZone">
+        <input type="file" id="fileInput" hidden>
+        <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path d="M12 15V4m0 0-4 4m4-4 4 4M5 15v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <strong data-i18n="data.open">Open a file</strong>
+        <span class="muted small" data-i18n="data.drop">or drop it anywhere on the page</span>
+        <span class="muted tiny" id="formatList"></span>
+      </label>
+      <div class="upload" id="uploadBox" hidden>
+        <div class="progress"><div class="bar" id="uploadBar"></div></div>
+        <span class="small muted" id="uploadText"></span>
+      </div>
+      <div class="samples">
+        <span class="small muted" data-i18n="data.samples">Examples:</span>
+        <button class="chip" data-sample="spectra" data-i18n="sample.spectra">Spectra</button>
+        <button class="chip" data-sample="kinetics" data-i18n="sample.kinetics">Kinetics</button>
+        <button class="chip" data-sample="groups" data-i18n="sample.groups">Groups</button>
+        <button class="chip" data-sample="surface" data-i18n="sample.surface">Surface</button>
+        <button class="chip" data-sample="cloud" data-i18n="sample.cloud">Point cloud</button>
+      </div>
+      <div class="field" id="tableField" hidden>
+        <label for="tableSelect" data-i18n="data.table">Table / sheet / dataset</label>
+        <select id="tableSelect"></select>
+      </div>
+      <details class="sub" id="importOptions" hidden>
+        <summary data-i18n="import.title">Import options</summary>
+        <div class="grid2">
+          <div class="field"><label data-i18n="import.sep">Separator</label>
+            <select data-import="sep"><option value="auto" data-i18n="opt.auto">auto</option><option value=",">,</option><option value=";">;</option><option value="&#9;" data-i18n="import.tab">tab</option><option value="|">|</option><option value="whitespace" data-i18n="import.space">spaces</option></select></div>
+          <div class="field"><label data-i18n="import.decimal">Decimal</label>
+            <select data-import="decimal"><option value="auto" data-i18n="opt.auto">auto</option><option value=".">.</option><option value=",">,</option></select></div>
+          <div class="field"><label data-i18n="import.header">Header row</label>
+            <select data-import="header"><option value="auto" data-i18n="opt.auto">auto</option><option value="none" data-i18n="import.noheader">none</option><option value="0">1</option><option value="1">2</option><option value="2">3</option><option value="3">4</option></select></div>
+          <div class="field"><label data-i18n="import.skip">Skip rows</label><input type="number" min="0" data-import="skiprows" placeholder="auto"></div>
+        </div>
+        <button class="btn small" id="btnReimport" data-i18n="import.apply">Apply</button>
+      </details>
+    </section>
+
+    <section class="card" id="mappingCard" hidden>
+      <h2 data-i18n="map.title">Variables</h2>
+      <div class="field" data-role="x"><label for="mapX" data-i18n="map.x">X axis</label><select id="mapX"></select></div>
+      <div class="field" data-role="y"><label data-i18n="map.y">Y axis (one or more)</label><div class="checklist" id="mapY"></div></div>
+      <details class="sub" data-role="y2"><summary data-i18n="map.y2">Secondary Y axis</summary><div class="checklist" id="mapY2"></div></details>
+      <div class="field" data-role="hue"><label for="mapHue" data-i18n="map.hue">Group by (colour)</label><select id="mapHue"></select></div>
+      <div class="field" data-role="z"><label for="mapZ" data-i18n="map.z">Z / colour value</label><select id="mapZ"></select></div>
+      <div class="grid2">
+        <div class="field" data-role="xerr"><label for="mapXerr" data-i18n="map.xerr">X error</label><select id="mapXerr"></select></div>
+        <div class="field" data-role="yerr"><label for="mapYerr" data-i18n="map.yerr">Y error</label><select id="mapYerr"></select></div>
+      </div>
+    </section>
+  </aside>
+
+  <!-- ============ centre: figure ============ -->
+  <section class="center">
+    <div class="kinds" id="kindGallery"></div>
+    <div class="stage-wrap">
+      <div class="tabs">
+        <button class="tab active" data-tab="figure" data-i18n="tab.figure">Figure</button>
+        <button class="tab" data-tab="table" data-i18n="tab.table">Data table</button>
+        <span class="figinfo muted small" id="figInfo"></span>
+      </div>
+      <div class="stage" id="stage">
+        <div class="empty" id="emptyState">
+          <svg viewBox="0 0 120 80" width="160" aria-hidden="true"><path d="M10 70h100M10 70V8" stroke="var(--muted)" stroke-width="1.5" fill="none"/><path d="M14 60 32 42 48 50 66 24 84 34 106 14" stroke="var(--accent)" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/><g fill="var(--accent)"><circle cx="32" cy="42" r="3"/><circle cx="48" cy="50" r="3"/><circle cx="66" cy="24" r="3"/><circle cx="84" cy="34" r="3"/></g></svg>
+          <h3 data-i18n="empty.title">Open a data file to start</h3>
+          <p class="muted" data-i18n="empty.text">CSV, Excel, JSON, HDF5, NetCDF, MATLAB, Parquet, FITS, SQLite, JCAMP-DX and more. PyPlotter suggests the right plot.</p>
+        </div>
+        <div class="figure-box" id="figureBox" hidden>
+          <img id="figure" alt="" draggable="false">
+          <div class="spinner" id="spinner" hidden></div>
+        </div>
+        <div class="error-box" id="errorBox" hidden></div>
+        <div class="table-box" id="tableBox" hidden></div>
+      </div>
+      <div class="hints" id="hints"></div>
+    </div>
+  </section>
+
+  <!-- ============ right: style & export ============ -->
+  <aside class="panel right" id="stylePanel">
+    <section class="card export-card">
+      <h2 data-i18n="export.title">Export</h2>
+      <div class="grid2">
+        <div class="field"><label data-i18n="export.format">Format</label><select id="exportFormat"></select></div>
+        <div class="field"><label data-i18n="export.dpi">Resolution (DPI)</label>
+          <select data-path="figure.dpi" data-type="number"><option>150</option><option>300</option><option>600</option><option>1200</option></select></div>
+      </div>
+      <div class="field"><label data-i18n="export.filename">File name</label><input type="text" id="exportName" value="figure"></div>
+      <button class="btn primary wide" id="btnExport" disabled>
+        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M12 4v11m0 0-4-4m4 4 4-4M5 19h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span data-i18n="export.button">Export figure</span></button>
+      <p class="tiny muted" id="exportHint"></p>
+      <div class="row-btns">
+        <button class="btn small" id="btnSaveTpl" data-i18n="tpl.save">Save style template</button>
+        <label class="btn small"><input type="file" id="tplInput" accept=".json" hidden><span data-i18n="tpl.load">Load template</span></label>
+      </div>
+    </section>
+
+    <details class="card acc" open>
+      <summary data-i18n="sec.figure">Size &amp; layout</summary>
+      <div class="field"><label data-i18n="fig.preset">Journal preset</label><select id="sizePreset"></select></div>
+      <div class="grid3">
+        <div class="field"><label data-i18n="fig.width">Width</label><input type="number" step="0.1" min="1" data-path="figure.width" data-type="number"></div>
+        <div class="field"><label data-i18n="fig.height">Height</label><input type="number" step="0.1" min="1" data-path="figure.height" data-type="number"></div>
+        <div class="field"><label data-i18n="fig.units">Units</label><select data-path="figure.units" id="unitSelect"><option value="mm">mm</option><option value="cm">cm</option><option value="in">in</option></select></div>
+      </div>
+      <label class="check"><input type="checkbox" data-path="figure.transparent"><span data-i18n="fig.transparent">Transparent background</span></label>
+    </details>
+
+    <details class="card acc" open>
+      <summary data-i18n="sec.style">Style &amp; colours</summary>
+      <div class="field"><label data-i18n="style.base">Style</label><select data-path="style.base" id="styleSelect"></select></div>
+      <div class="field"><label data-i18n="style.palette">Colour palette</label><select data-path="style.palette" id="paletteSelect"></select><div class="swatches" id="paletteSwatches"></div></div>
+      <div class="field" data-for="cmap"><label data-i18n="style.cmap">Colour map</label>
+        <div class="inline"><select data-path="style.cmap" id="cmapSelect"></select>
+        <label class="check"><input type="checkbox" data-path="style.cmap_reverse"><span data-i18n="style.reverse">reverse</span></label></div></div>
+      <div class="grid3">
+        <div class="field"><label data-i18n="style.linewidth">Line width</label><input type="number" step="0.1" min="0" data-path="style.linewidth" data-type="number"></div>
+        <div class="field"><label data-i18n="style.markersize">Marker size</label><input type="number" step="0.5" min="0" data-path="style.markersize" data-type="number"></div>
+        <div class="field"><label data-i18n="style.alpha">Opacity</label><input type="number" step="0.05" min="0" max="1" data-path="style.alpha" data-type="number"></div>
+      </div>
+      <div class="grid2">
+        <div class="field"><label data-i18n="style.linestyle">Line style</label><select data-path="style.linestyle" class="ls-select"></select></div>
+        <div class="field"><label data-i18n="style.marker">Marker</label><select data-path="style.marker" class="marker-select"></select></div>
+      </div>
+      <div class="kind-opts" id="kindOptions"></div>
+    </details>
+
+    <details class="card acc" id="seriesCard">
+      <summary data-i18n="sec.series">Series</summary>
+      <div id="seriesList" class="series-list"></div>
+    </details>
+
+    <details class="card acc">
+      <summary data-i18n="sec.text">Text &amp; fonts</summary>
+      <div class="field"><label data-i18n="text.title">Title</label><input type="text" data-path="text.title"></div>
+      <div class="field"><label data-i18n="text.xlabel">X label</label><input type="text" data-path="text.xlabel" data-i18n-placeholder="text.auto"></div>
+      <div class="field"><label data-i18n="text.ylabel">Y label</label><input type="text" data-path="text.ylabel" data-i18n-placeholder="text.auto"></div>
+      <div class="field"><label data-i18n="text.y2label">Secondary Y label</label><input type="text" data-path="text.y2label" data-i18n-placeholder="text.auto"></div>
+      <div class="field"><label data-i18n="text.zlabel">Colour bar label</label><input type="text" data-path="text.zlabel" data-i18n-placeholder="text.auto"></div>
+      <p class="tiny muted" data-i18n="text.mathhint">Math: $\alpha$, $10^{-3}$, $\mu$m, $H_2O$</p>
+      <div class="field"><label data-i18n="text.font">Font</label><select data-path="text.font" id="fontSelect"></select></div>
+      <div class="grid2">
+        <div class="field"><label data-i18n="text.size">Base size (pt)</label><input type="number" step="0.5" min="4" data-path="text.size" data-type="number"></div>
+        <div class="field"><label data-i18n="text.title_size">Title (pt)</label><input type="number" step="0.5" min="4" data-path="text.title_size" data-type="number"></div>
+        <div class="field"><label data-i18n="text.label_size">Axis labels (pt)</label><input type="number" step="0.5" min="4" data-path="text.label_size" data-type="number"></div>
+        <div class="field"><label data-i18n="text.tick_size">Tick labels (pt)</label><input type="number" step="0.5" min="4" data-path="text.tick_size" data-type="number"></div>
+        <div class="field"><label data-i18n="text.legend_size">Legend (pt)</label><input type="number" step="0.5" min="4" data-path="text.legend_size" data-type="number"></div>
+        <div class="field"><label data-i18n="text.mathtext">Math font</label><select data-path="text.mathtext"><option value="dejavusans">DejaVu Sans</option><option value="stixsans">STIX Sans</option><option value="stix">STIX</option><option value="cm">Computer Modern</option><option value="dejavuserif">DejaVu Serif</option></select></div>
+      </div>
+      <label class="check"><input type="checkbox" data-path="text.bold_labels"><span data-i18n="text.bold">Bold labels</span></label>
+    </details>
+
+    <details class="card acc">
+      <summary data-i18n="sec.axes">Axes &amp; ticks</summary>
+      <div class="grid2">
+        <div class="field"><label data-i18n="axes.xscale">X scale</label><select data-path="axes.xscale" class="scale-select"></select></div>
+        <div class="field"><label data-i18n="axes.yscale">Y scale</label><select data-path="axes.yscale" class="scale-select"></select></div>
+        <div class="field"><label>X min</label><input type="text" data-path="axes.xmin" data-type="nullable" placeholder="auto"></div>
+        <div class="field"><label>X max</label><input type="text" data-path="axes.xmax" data-type="nullable" placeholder="auto"></div>
+        <div class="field"><label>Y min</label><input type="number" data-path="axes.ymin" data-type="nullable" placeholder="auto"></div>
+        <div class="field"><label>Y max</label><input type="number" data-path="axes.ymax" data-type="nullable" placeholder="auto"></div>
+        <div class="field"><label data-i18n="axes.y2min">Y2 min</label><input type="number" data-path="axes.y2min" data-type="nullable" placeholder="auto"></div>
+        <div class="field"><label data-i18n="axes.y2max">Y2 max</label><input type="number" data-path="axes.y2max" data-type="nullable" placeholder="auto"></div>
+        <div class="field"><label data-i18n="axes.grid">Grid</label><select data-path="axes.grid"><option value="auto" data-i18n="opt.auto">auto</option><option value="none" data-i18n="opt.none">none</option><option value="major" data-i18n="axes.major">major</option><option value="both" data-i18n="axes.both">major + minor</option></select></div>
+        <div class="field"><label data-i18n="axes.ticks">Tick direction</label><select data-path="axes.tick_direction"><option value="in" data-i18n="axes.in">in</option><option value="out" data-i18n="axes.out">out</option><option value="inout" data-i18n="axes.inout">across</option></select></div>
+        <div class="field"><label data-i18n="axes.spines">Frame</label><select data-path="axes.spines"><option value="box" data-i18n="axes.box">box</option><option value="open" data-i18n="axes.open">open (L)</option><option value="none" data-i18n="opt.none">none</option></select></div>
+        <div class="field"><label data-i18n="axes.linewidth">Axis line width</label><input type="number" step="0.1" min="0" data-path="axes.linewidth" data-type="number"></div>
+        <div class="field"><label data-i18n="axes.rotation">X label rotation (°)</label><input type="number" step="15" data-path="axes.xrotation" data-type="number"></div>
+        <div class="field"><label data-i18n="axes.aspect">Aspect</label><select data-path="axes.aspect"><option value="auto" data-i18n="opt.auto">auto</option><option value="equal" data-i18n="axes.equal">equal</option></select></div>
+      </div>
+      <label class="check"><input type="checkbox" data-path="axes.minor_ticks"><span data-i18n="axes.minor">Minor ticks</span></label>
+      <label class="check"><input type="checkbox" data-path="axes.mirror_ticks"><span data-i18n="axes.mirror">Ticks on all four sides</span></label>
+      <label class="check"><input type="checkbox" data-path="axes.sci"><span data-i18n="axes.sci">Scientific notation (×10ⁿ)</span></label>
+      <label class="check"><input type="checkbox" data-path="axes.invert_x"><span data-i18n="axes.invx">Invert X (e.g. wavenumbers)</span></label>
+      <label class="check"><input type="checkbox" data-path="axes.invert_y"><span data-i18n="axes.invy">Invert Y</span></label>
+    </details>
+
+    <details class="card acc">
+      <summary data-i18n="sec.legend">Legend</summary>
+      <div class="grid2">
+        <div class="field"><label data-i18n="legend.show">Show</label><select data-path="legend.show"><option value="auto" data-i18n="opt.auto">auto</option><option value="show" data-i18n="opt.always">always</option><option value="hide" data-i18n="opt.never">never</option></select></div>
+        <div class="field"><label data-i18n="legend.loc">Position</label><select data-path="legend.loc" id="legendLoc"></select></div>
+        <div class="field"><label data-i18n="legend.ncol">Columns</label><input type="number" min="1" max="8" data-path="legend.ncol" data-type="number"></div>
+        <div class="field"><label data-i18n="legend.title">Title</label><input type="text" data-path="legend.title"></div>
+      </div>
+      <label class="check"><input type="checkbox" data-path="legend.frame"><span data-i18n="legend.frame">Frame</span></label>
+    </details>
+  </aside>
+</main>
+
+<!-- ============ first start: install core ============ -->
+<section class="setup" id="setup" hidden>
+  <div class="setup-card">
+    <svg viewBox="0 0 32 32" width="48" height="48" aria-hidden="true"><rect x="1.5" y="1.5" width="29" height="29" rx="7" fill="var(--accent)"/><path d="M7 23 L12 15 L16 19 L25 8" fill="none" stroke="var(--on-accent)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <h1 data-i18n="setup.title">Welcome to PyPlotter</h1>
+    <p data-i18n="setup.text">To draw figures PyPlotter needs NumPy, pandas and Matplotlib (about 80 MB, open source). They are installed once, in PyPlotter's private environment.</p>
+    <div class="progress big" id="setupProgress" hidden><div class="bar"></div></div>
+    <p class="phase" id="setupPhase"></p>
+    <button class="btn primary" id="btnSetup" data-i18n="setup.install">Install and start</button>
+    <p class="tiny muted" id="setupPython"></p>
+  </div>
+</section>
+
+<!-- ============ dialogs ============ -->
+<dialog id="installDialog" class="dialog">
+  <form method="dialog" class="dlg">
+    <h2 data-i18n="install.title">Additional module needed</h2>
+    <p id="installReason"></p>
+    <ul class="mod-list" id="installList"></ul>
+    <div class="progress big" id="installProgress" hidden><div class="bar"></div></div>
+    <p class="phase" id="installPhase"></p>
+    <details class="sub" id="installLogBox" hidden><summary data-i18n="install.details">Details</summary><pre id="installLog"></pre></details>
+    <div class="dlg-actions">
+      <button class="btn" value="cancel" id="installCancel" data-i18n="btn.cancel">Cancel</button>
+      <button class="btn primary" id="installGo" data-i18n="install.button">Install</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="modulesDialog" class="dialog wide">
+  <div class="dlg">
+    <div class="dlg-head">
+      <h2 data-i18n="modules.title">Python modules</h2>
+      <button class="btn ghost icon" data-close aria-label="Close">✕</button>
+    </div>
+    <p class="small muted" id="modulesInfo"></p>
+    <div class="dlg-tools">
+      <button class="btn small" id="btnRefresh" data-i18n="modules.refresh">Check for updates</button>
+      <button class="btn small primary" id="btnUpdateAll" data-i18n="modules.update_all" hidden>Update all</button>
+    </div>
+    <div class="progress" id="modulesProgress" hidden><div class="bar"></div></div>
+    <p class="phase small" id="modulesPhase"></p>
+    <div id="modulesTable" class="modules-table"></div>
+  </div>
+</dialog>
+
+<dialog id="aboutDialog" class="dialog wide">
+  <div class="dlg">
+    <div class="dlg-head"><h2>PyPlotter <span id="aboutVersion" class="muted small"></span></h2><button class="btn ghost icon" data-close aria-label="Close">✕</button></div>
+    <p data-i18n="about.licence">PyPlotter is free software under the MIT licence. It relies only on open-source packages; their licences and the references to cite are listed below.</p>
+    <h3 data-i18n="about.cite">How to cite</h3>
+    <p class="small" data-i18n="about.cite_text">In the methods, cite Matplotlib and the other modules used for the figure. Every “Python script” export includes a REFERENCES.txt with exactly those references.</p>
+    <div id="aboutRefs" class="refs"></div>
+    <h3 data-i18n="about.palettes">Colour palettes</h3>
+    <ul class="refs small">
+      <li>Okabe, M. &amp; Ito, K. <i>Color Universal Design (CUD): how to make figures and presentations that are friendly to colorblind people</i> (2008). <a href="https://jfly.uni-koeln.de/color/" target="_blank" rel="noopener">jfly.uni-koeln.de/color</a></li>
+      <li>Tol, P. <i>Colour Schemes</i>. SRON Technical Note SRON/EPS/TN/09-002, issue 3.2 (2021). <a href="https://personal.sron.nl/~pault/" target="_blank" rel="noopener">personal.sron.nl/~pault</a></li>
+      <li>Nuñez, J. R., Anderton, C. R. &amp; Renslow, R. S. Optimizing colormaps with consideration for color vision deficiency (cividis). <i>PLOS ONE</i> 13, e0199239 (2018). doi:10.1371/journal.pone.0199239</li>
+      <li>van der Walt, S. &amp; Smith, N. <i>mpl colormaps</i> (viridis, plasma, inferno, magma), 2015. <a href="https://bids.github.io/colormap/" target="_blank" rel="noopener">bids.github.io/colormap</a></li>
+    </ul>
+    <p class="tiny muted" data-i18n="about.trademarks">Journal names in the size presets only describe column widths; they are trademarks of their owners, who are not affiliated with PyPlotter.</p>
+  </div>
+</dialog>
+
+<div class="toasts" id="toasts"></div>
+<div class="dropveil" id="dropVeil"><div data-i18n="data.dropnow">Drop the file to open it</div></div>
+
+<script src="/static/i18n.js"></script>
+<script src="/static/icons.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>

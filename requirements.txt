@@ -1,0 +1,7 @@
+# Core modules. PyPlotter normally installs them itself from the browser page (with a progress bar);
+# this file is for manual or conda setups:  python -m pip install -r requirements.txt
+# Optional modules (Excel, HDF5, NetCDF, seaborn, Plotly, …) are listed in pyplotter/registry.json
+# and installed on demand.
+numpy>=1.24
+pandas>=2.0
+matplotlib>=3.8
