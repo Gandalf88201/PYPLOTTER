@@ -48,7 +48,8 @@ printed in the terminal window. Options:
   colour/label/line/marker, fonts and sizes in points, LaTeX-style math (`$\alpha$`, `$10^{-3}$`),
   log/symlog scales, limits, ticks (in/out, minor, mirrored), grid, frame, legend inside/outside.
   Style templates can be saved and loaded as JSON.
-- **Analysis** tab (all through open-source Python modules, results with the references to cite):
+- **Analysis** panel in the right sidebar, above *Export* — the figure stays open and results are drawn
+  on it (all through open-source Python modules, results with the references to cite):
   - *fitting* — 15 models (exponential, double, stretched/KWW, power, Gaussian, Lorentzian, Voigt,
     logistic, Hill, Michaelis–Menten, Arrhenius, sine, polynomials) or your own formula, weighted by an
     error column, with standard errors, 95 % CIs, R², adjusted R², RMSE, χ²_red, AIC, BIC (SciPy);
@@ -127,7 +128,8 @@ con un solo pulsante e una barra di avanzamento. Tieni aperta la finestra del te
 - Esportazione alle dimensioni esatte delle colonne delle riviste: PNG/TIFF/JPEG fino a 1200 DPI,
   PDF/SVG/EPS vettoriali con testo modificabile, HTML interattivo e uno ZIP con script Python che
   ricrea la figura, completo dei riferimenti da citare.
-- Scheda **Analisi**: fit (15 modelli o formula libera, con errori, intervalli di confidenza, R², AIC),
+- Riquadro **Analisi** nella barra di destra, sopra *Esporta* (il grafico resta aperto e i risultati vi si
+  sovrappongono): fit (15 modelli o formula libera, con errori, intervalli di confidenza, R², AIC),
   autocorrelazione e PACF, tempo di correlazione, block averaging per l'errore di dati correlati (es. MD),
   correlazione incrociata, statistica descrittiva, test di normalità, confronto tra gruppi (t-test,
   ANOVA, Kruskal–Wallis, Tukey…), correlazioni, regressione e ANOVA con formule, fit di distribuzioni,

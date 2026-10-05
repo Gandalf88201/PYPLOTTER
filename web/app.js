@@ -799,7 +799,7 @@ function applyDataset(ds, keepSpec = false) {
   updateHints();
   updateFigInfo();
   if (state.tab === 'table') setTab('figure');
-  if (state.tab === 'analysis' && window.Analysis) window.Analysis.show();
+  if (window.Analysis) window.Analysis.show();
   scheduleRender(0);
 }
 
@@ -1023,6 +1023,7 @@ function clearDataset(message) {
   $('#btnExport').disabled = true;
   $('#hints').innerHTML = '';
   if (window.Files) Files.render();
+  if (window.Analysis) window.Analysis.show();
   if (message) { toast(message, true); setDataError(message); }
 }
 
@@ -1084,11 +1085,9 @@ function setTab(tab) {
   const hasData = !!state.dataset;
   $('#tableBox').hidden = tab !== 'table' || !hasData;
   $('#figureBox').hidden = tab !== 'figure' || !hasData;
-  $('#analysisBox').hidden = tab !== 'analysis' || !hasData;
   $('#emptyState').hidden = hasData;
   if (tab !== 'figure') $('#errorBox').hidden = true;
   if (tab === 'figure') scheduleRender(0);
-  if (tab === 'analysis' && hasData && window.Analysis) window.Analysis.show();
 }
 
 // ------------------------------------------------------------------ export & templates
@@ -1356,6 +1355,7 @@ async function start() {
   buildSeries();
   updateFigInfo();
   bindApp();
+  if (window.Analysis) window.Analysis.show();
   refreshStatus().then(() => {
     if (state.status.refresh?.state === 'running') {
       setTimeout(() => refreshStatus().catch(() => {}), 6000);

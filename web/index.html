@@ -136,7 +136,6 @@
       <div class="tabs">
         <button class="tab active" data-tab="figure" data-i18n="tab.figure">Figure</button>
         <button class="tab" data-tab="table" data-i18n="tab.table">Data table</button>
-        <button class="tab" data-tab="analysis" data-i18n="tab.analysis">Analysis</button>
         <span class="figinfo muted small" id="figInfo"></span>
       </div>
       <div class="stage" id="stage">
@@ -151,20 +150,6 @@
         </div>
         <div class="error-box" id="errorBox" hidden></div>
         <div class="table-box" id="tableBox" hidden></div>
-        <div class="analysis-box" id="analysisBox" hidden>
-          <aside class="an-list">
-            <div class="an-tools">
-              <button class="btn small" id="btnNewPlugin" data-i18n="an.new">New plugin</button>
-              <button class="btn small" id="btnPluginFolder" data-i18n="an.folder">Plugins folder</button>
-              <button class="btn small ghost" id="btnReloadPlugins" data-i18n-title="an.reload" aria-label="Reload">⟳</button>
-            </div>
-            <div id="anList"></div>
-            <div id="anErrors"></div>
-          </aside>
-          <section class="an-main" id="anMain">
-            <p class="muted" data-i18n="an.pick">Choose an analysis on the left.</p>
-          </section>
-        </div>
       </div>
       <div class="hints" id="hints"></div>
     </div>
@@ -172,6 +157,21 @@
 
   <!-- ============ right: style & export ============ -->
   <aside class="panel right" id="stylePanel">
+    <details class="card acc analysis-card" id="analysisCard" open>
+      <summary data-i18n="tab.analysis">Analysis</summary>
+      <p class="small muted" id="anEmpty" data-i18n="an.need_data">Open data to analyse it.</p>
+      <div id="anBody" hidden>
+        <div class="field"><label for="anSelect" data-i18n="an.choose">Analysis</label><select id="anSelect"></select></div>
+        <div id="anMain"></div>
+        <div id="anErrors"></div>
+        <div class="an-tools">
+          <button class="btn small" id="btnNewPlugin" data-i18n="an.new">New plugin</button>
+          <button class="btn small" id="btnPluginFolder" data-i18n="an.folder">Plugins folder</button>
+          <button class="btn small ghost" id="btnReloadPlugins" data-i18n-title="an.reload" aria-label="Reload">⟳</button>
+        </div>
+      </div>
+    </details>
+
     <section class="card export-card">
       <h2 data-i18n="export.title">Export</h2>
       <div class="grid2">

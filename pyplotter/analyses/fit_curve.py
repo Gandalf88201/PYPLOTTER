@@ -46,7 +46,7 @@ PLUGIN = {
         {'id': 'model', 'type': 'choice', 'default': 'exp_decay', 'label': {'en': 'Model', 'it': 'Modello'},
          'choices': [{'value': k, 'label': v[0]} for k, v in MODELS.items()] +
                     [{'value': 'custom', 'label': {'en': 'Custom formula…', 'it': 'Formula personalizzata…'}}]},
-        {'id': 'formula', 'type': 'text', 'default': 'a*exp(-x/tau) + c',
+        {'id': 'formula', 'type': 'text', 'default': 'a*exp(-x/tau) + c', 'show_if': {'model': ['custom']},
          'label': {'en': 'Custom formula in x', 'it': 'Formula personalizzata in x'},
          'help': {'en': 'Functions: exp log log10 sqrt sin cos tan arctan sinh cosh tanh abs erf; constants pi, e.',
                   'it': 'Funzioni: exp log log10 sqrt sin cos tan arctan sinh cosh tanh abs erf; costanti pi, e.'}},

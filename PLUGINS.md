@@ -2,14 +2,14 @@
 
 *Italiano più sotto.*
 
-Every analysis in the **Analysis** tab is a plugin: one Python file with a `PLUGIN` dictionary and
+Every analysis in the **Analysis** panel is a plugin: one Python file with a `PLUGIN` dictionary and
 a `run(df, p, ctx)` function. The built-in ones live in `pyplotter/analyses/`; yours live in your
 **plugins folder** (`~/.pyplotter/plugins/`, or the folder in the environment variable
 `PYPLOTTER_PLUGINS`). That folder is outside the program, so updating PyPlotter never touches it.
 
 ## Three ways to start
 
-- **New plugin** (Analysis tab) creates a working example from a template and opens the editor.
+- **New plugin** (Analysis panel) creates a working example from a template and opens the editor.
 - **Customise…** on any built-in analysis copies it into your folder. A user plugin with the same
   `id` as a built-in one **replaces** it — this is how you change a statistical method. Disable or
   delete your copy to go back to the original.
@@ -65,6 +65,12 @@ def run(df, p, ctx):
 | `text` | string | — |
 
 Every parameter takes `label` and optional `help` (a string or `{'en': …, 'it': …}`).
+`show_if: {'model': ['custom']}` shows a parameter only when another parameter has one of the
+listed values (the custom-formula field of *Curve fitting* uses it).
+
+Analyses live in the **Analysis** panel of the right sidebar, above *Export*: the figure stays open
+and every overlay a result provides (`r.overlay`) is drawn on it as soon as the analysis runs;
+*Show on the figure* removes or restores those layers, and running the analysis again replaces them.
 
 ### The `ctx` helper
 
@@ -109,7 +115,7 @@ rights. Only install plugins you have read or that come from people you trust.
 
 ## Italiano
 
-Ogni analisi della scheda **Analisi** è un plugin: un file Python con un dizionario `PLUGIN` e una
+Ogni analisi del riquadro **Analisi** (barra di destra, sopra *Esporta*) è un plugin: un file Python con un dizionario `PLUGIN` e una
 funzione `run(df, p, ctx)`. Quelli inclusi stanno in `pyplotter/analyses/`; i tuoi nella **cartella
 plugin** (`~/.pyplotter/plugins/`, oppure quella indicata da `PYPLOTTER_PLUGINS`), fuori dal
 programma: gli aggiornamenti di PyPlotter non la toccano.

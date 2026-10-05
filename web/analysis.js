@@ -1,5 +1,6 @@
-// PyPlotter analysis tab: runs built-in and user plugins on the current data set,
-// shows their results and turns result data into new figures. Plugin editor included.
+// PyPlotter analysis panel (right sidebar): runs built-in and user plugins on the current data,
+// draws their curves and error bands over the open figure, shows the numbers, and can turn a
+// result into a figure of its own. Plugin editor included.
 'use strict';
 
 window.Analysis = (() => {
@@ -15,41 +16,43 @@ window.Analysis = (() => {
   }
 
   async function show() {
+    const has = !!state.dataset;
+    $('#anEmpty').hidden = has;
+    $('#anBody').hidden = !has;
+    if (!has) return;
     try {
       await load();
     } catch (e) {
       return handleError(e, show);
     }
     renderList();
-    if (A.current && A.list.plugins.some(p => p.id === A.current)) renderMain(A.current, true);
+    if (!A.current || !A.list.plugins.some(p => p.id === A.current)) {
+      A.current = (A.list.plugins.find(p => p.id === 'fit_curve') || A.list.plugins[0] || {}).id || null;
+    }
+    if (A.current) renderMain(A.current, true);
   }
 
   function renderList() {
-    const box = $('#anList');
-    box.innerHTML = '';
+    const sel = $('#anSelect');
+    sel.innerHTML = '';
     CATS.forEach(cat => {
       const items = A.list.plugins.filter(p => p.category === cat);
       if (!items.length) return;
-      const h = document.createElement('div');
-      h.className = 'an-cat';
-      h.textContent = t('an.cat.' + cat);
-      box.append(h);
+      const g = document.createElement('optgroup');
+      g.label = t('an.cat.' + cat);
       items.forEach(p => {
-        const b = document.createElement('button');
-        b.className = 'an-item' + (p.id === A.current ? ' active' : '');
-        const name = document.createElement('span');
-        name.textContent = L(p.name);
-        b.append(name);
-        const tag = document.createElement('span');
-        tag.className = 'tag';
-        if (p.missing.length) { tag.classList.add('need'); tag.textContent = '↓ ' + p.missing.join(', '); }
-        else if (p.source === 'user') { tag.classList.add('user'); tag.textContent = p.overrides ? t('an.custom') : t('an.user'); }
-        b.append(tag);
-        b.title = L(p.description);
-        b.onclick = () => renderMain(p.id);
-        box.append(b);
+        const o = document.createElement('option');
+        o.value = p.id;
+        let tag = '';
+        if (p.missing.length) tag = '  ↓';
+        else if (p.source === 'user') tag = `  (${p.overrides ? t('an.custom') : t('an.user')})`;
+        o.textContent = L(p.name) + tag;
+        g.append(o);
       });
+      sel.append(g);
     });
+    if (A.current) sel.value = A.current;
+    sel.onchange = () => renderMain(sel.value);
     const err = $('#anErrors');
     err.innerHTML = '';
     if (A.list.errors.length) {
@@ -98,22 +101,22 @@ window.Analysis = (() => {
 
   function renderMain(id, keepResult = false) {
     A.current = id;
-    $$('#anList .an-item').forEach(b => b.classList.toggle('active', b.querySelector('span').textContent === L(plugin().name)));
+    $('#anSelect').value = id;
     const p = plugin();
     const main = $('#anMain');
     main.innerHTML = '';
     const head = document.createElement('div');
     head.className = 'an-head';
-    const title = document.createElement('div');
-    title.innerHTML = '<h3></h3><p class="small muted"></p>';
-    title.querySelector('h3').textContent = L(p.name);
-    title.querySelector('p').textContent = L(p.description) + `  ·  ${p.file}${p.source === 'user' ? ' (' + t('an.user') + ')' : ''}`;
+    const desc = document.createElement('p');
+    desc.className = 'an-desc';
+    desc.textContent = L(p.description);
+    desc.title = p.file + (p.source === 'user' ? ` (${t('an.user')})` : '');
     const edit = document.createElement('button');
     edit.className = 'btn small';
     edit.textContent = p.source === 'user' ? t('an.edit') : t('an.customize');
-    edit.title = p.source === 'user' ? '' : t('an.customize_hint');
+    edit.title = p.source === 'user' ? p.file : t('an.customize_hint');
     edit.onclick = () => (p.source === 'user' ? openEditor({ file: p.file }) : customize(p.id));
-    head.append(title, edit);
+    head.append(desc, edit);
     main.append(head);
 
     const values = A.params[paramKey(id)] || {};
@@ -121,6 +124,17 @@ window.Analysis = (() => {
     form.className = 'an-form';
     p.params.forEach(prm => form.append(field(prm, values[prm.id] !== undefined ? values[prm.id] : defaultValue(prm))));
     main.append(form);
+    // Parameters with show_if: {other: [values]} appear only when the other parameter has one of those values.
+    const applyShowIf = () => {
+      const now = readForm();
+      p.params.forEach(prm => {
+        if (!prm.show_if) return;
+        const el = $(`#anMain [data-param="${CSS.escape(prm.id)}"]`);
+        if (el) el.hidden = !Object.entries(prm.show_if).every(([k, vals]) => [].concat(vals).includes(now[k]));
+      });
+    };
+    form.addEventListener('change', applyShowIf);
+    applyShowIf();
 
     const actions = document.createElement('div');
     actions.className = 'an-actions';
@@ -145,7 +159,8 @@ window.Analysis = (() => {
     res.className = 'an-results';
     res.id = 'anResults';
     main.append(res);
-    if (keepResult && A.result && A.result.plugin.id === id) renderResult(A.result);
+    if (keepResult && A.result && A.result.plugin.id === id && state.dataset &&
+        A.result.analysed_dataset === state.dataset.dataset_id) renderResult(A.result);
   }
 
   function plugin() { return A.list.plugins.find(p => p.id === A.current); }
@@ -243,6 +258,7 @@ window.Analysis = (() => {
       const res = await api('/api/analyses/run', { dataset_id: state.dataset.dataset_id, id: p.id, params,
         spec: specForServer(), lang: state.lang });
       A.result = res;
+      if (res.overlays.length) showOnFigure(res, true);
       renderResult(res);
     } catch (e) {
       if (e.code === 'missing_modules') {
@@ -301,11 +317,16 @@ window.Analysis = (() => {
     return [columns.map(esc).join(','), ...rows.map(r => r.map(esc).join(','))].join('\n') + '\n';
   }
 
-  function tableBlock(box, title, columns, rows) {
-    const h = document.createElement('h4');
-    h.textContent = title;
+  function tableBlock(box, title, columns, rows, open = false) {
+    const det = document.createElement('details');
+    det.open = open;
+    const sum = document.createElement('summary');
+    sum.textContent = title + (rows.length > 1 ? `  (${rows.length})` : '');
+    const wrap = document.createElement('div');
+    wrap.className = 'tbl';
+    wrap.append(htmlTable(columns, rows));
     const bar = document.createElement('div');
-    bar.className = 'an-actions';
+    bar.className = 'mini';
     const copy = document.createElement('button');
     copy.className = 'btn small';
     copy.textContent = t('an.copy');
@@ -318,63 +339,68 @@ window.Analysis = (() => {
     csv.textContent = 'CSV';
     csv.onclick = () => download(new Blob([toCSV(columns, rows)], { type: 'text/csv' }), `${title.replace(/[^\w.-]+/g, '_')}.csv`);
     bar.append(copy, csv);
-    box.append(h, htmlTable(columns, rows), bar);
+    det.append(sum, wrap, bar);
+    box.append(det);
   }
+
+  const onFigure = res => (state.spec.overlays || []).some(o => o.analysis_run === res.plugin.id);
 
   function renderResult(res) {
     const box = $('#anResults');
     if (!box) return;
     box.innerHTML = '';
-    if (res.dataset || res.overlays.length) {
-      const bar = document.createElement('div');
-      bar.className = 'an-actions';
-      if (res.overlays.length) {
-        const ov = document.createElement('button');
-        ov.className = 'btn primary';
-        ov.textContent = t('an.overlay');
-        ov.title = t('an.overlay_hint');
-        ov.onclick = () => overlayResult(res);
-        bar.append(ov);
-      }
-      if (res.dataset) {
-        const plot = document.createElement('button');
-        plot.className = res.overlays.length ? 'btn' : 'btn primary';
-        plot.textContent = t('an.plot');
-        plot.title = t('an.plot_hint', { rows: res.dataset.rows.toLocaleString(LOCALE()), cols: res.dataset.columns.length });
-        plot.onclick = () => plotResult(res);
-        bar.append(plot);
-      }
-      const note = document.createElement('span');
-      note.className = 'small muted';
-      note.textContent = res.overlays.length ? t('an.overlay_hint') : t('an.plot_hint', { rows: res.dataset.rows.toLocaleString(LOCALE()), cols: res.dataset.columns.length });
-      bar.append(note);
-      box.append(bar);
+    const bar = document.createElement('div');
+    bar.className = 'an-actions';
+    if (res.overlays.length) {
+      const lab = document.createElement('label');
+      lab.className = 'check';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = onFigure(res);
+      cb.onchange = () => showOnFigure(res, cb.checked);
+      const sp = document.createElement('span');
+      sp.textContent = t('an.on_figure');
+      lab.append(cb, sp);
+      lab.title = t('an.overlay_hint');
+      bar.append(lab);
     }
+    if (res.dataset) {
+      const plot = document.createElement('button');
+      plot.className = res.overlays.length ? 'btn small' : 'btn small primary';
+      plot.textContent = t('an.plot');
+      plot.title = t('an.plot_hint', { rows: res.dataset.rows.toLocaleString(LOCALE()), cols: res.dataset.columns.length });
+      plot.onclick = () => plotResult(res);
+      bar.append(plot);
+    }
+    if (bar.children.length) box.append(bar);
     res.texts.forEach(text => {
       const p = document.createElement('p');
-      if (/^[a-zA-Z]+ ?=|^y =|^k =/.test(text) || /~/.test(text)) p.className = 'eq';
+      p.className = /^[a-zA-Z]+ ?=|^y =|^k =/.test(text) || /~/.test(text) ? 'eq' : 'small';
       p.textContent = text;
       box.append(p);
     });
     if (res.summary.length) {
-      tableBlock(box, t('an.summary'), [t('an.quantity'), t('an.value'), '±', t('an.unit')],
-        res.summary.map(s => [s.label, s.value, s.error, s.unit]));
+      const rows = res.summary.map(s => [s.label, [fmt(s.value), s.error !== null && s.error !== undefined ? '± ' + fmt(s.error) : '',
+        s.unit || ''].filter(Boolean).join(' ')]);
+      tableBlock(box, t('an.summary'), [t('an.quantity'), t('an.value')], rows, true);
     }
-    res.tables.forEach(tb => tableBlock(box, tb.title, tb.columns, tb.rows));
+    res.tables.forEach((tb, i) => tableBlock(box, tb.title, tb.columns, tb.rows, i === 0));
     if (res.references.length) {
-      const h = document.createElement('h4');
-      h.textContent = t('an.refs');
+      const det = document.createElement('details');
+      const sum = document.createElement('summary');
+      sum.textContent = t('an.refs');
       const ul = document.createElement('ul');
       ul.className = 'refs';
       res.references.forEach(r => { const li = document.createElement('li'); li.textContent = r; ul.append(li); });
-      box.append(h, ul);
+      det.append(sum, ul);
+      box.append(det);
     }
   }
 
   // Overlay descriptor for the figure spec; gets a fixed colour so the panel shows the real one.
   const stripOverlay = (o, res, index) => {
     const { dataset, ...rest } = o;
-    const out = { ...clone(rest), id: Math.random().toString(16).slice(2, 12),
+    const out = { ...clone(rest), id: Math.random().toString(16).slice(2, 12), analysis_run: res.plugin.id,
       source_name: `${L(res.plugin.name)} · ${state.dataset ? state.dataset.name : ''}` };
     out.style = out.style || {};
     const pal = state.meta.palettes[state.spec.style.palette] || [];
@@ -382,35 +408,39 @@ window.Analysis = (() => {
     return out;
   };
 
-  function overlayResult(res) {
+  // Draw (or remove) the result's curves and bands on the open figure; a new run replaces the old layers.
+  function showOnFigure(res, on) {
     if (!state.dataset || state.dataset.dataset_id !== res.analysed_dataset) {
-      toast(t('ov.other_data'), true);
+      if (on) toast(t('ov.other_data'), true);
       return;
     }
     const s = state.spec;
-    s.overlays = s.overlays || [];
-    res.overlays.forEach(o => s.overlays.push(stripOverlay(o, res, s.overlays.length)));
-    // A fit weighted by an error column: show the data with those error bars.
-    const sigma = res.params && (res.params.sigma || res.params.yerr);
-    if (sigma && !s.yerr && ['line', 'scatter', 'errorbar'].includes(s.kind)) {
-      s.kind = 'errorbar';
-      s.yerr = sigma;
-      s.series = s.series || {};
-      s.y.forEach(c => { s.series[c] = { ...(s.series[c] || {}), linestyle: 'none', marker: (s.series[c] || {}).marker || 'o' }; });
-      toast(t('ov.errors_used', { col: sigma }));
+    s.overlays = (s.overlays || []).filter(o => o.analysis_run !== res.plugin.id);
+    if (on) {
+      res.overlays.forEach(o => s.overlays.push(stripOverlay(o, res, s.overlays.length)));
+      // A fit weighted by an error column: show the data with those error bars.
+      const sigma = res.params && (res.params.sigma || res.params.yerr);
+      if (sigma && !s.yerr && ['line', 'scatter', 'errorbar'].includes(s.kind)) {
+        s.kind = 'errorbar';
+        s.yerr = sigma;
+        s.series = s.series || {};
+        s.y.forEach(c => { s.series[c] = { ...(s.series[c] || {}), linestyle: 'none', marker: (s.series[c] || {}).marker || 'o' }; });
+        toast(t('ov.errors_used', { col: sigma }));
+        buildKindGallery();
+        buildKindOptions();
+        buildMapping(false);
+      }
     }
-    buildKindGallery();
-    buildKindOptions();
-    buildMapping(false);
     buildSeries();
-    setTab('figure');
+    if (state.tab !== 'figure') setTab('figure'); else scheduleRender(0);
   }
 
   function reset() {
     A.result = null;
     if (A.current && state.dataset) delete A.params[paramKey(A.current)];
-    if (A.current && A.list && state.dataset && state.tab === 'analysis') renderMain(A.current);
-    else { A.current = null; const m = $('#anMain'); if (m) m.innerHTML = `<p class="muted">${t('an.pick')}</p>`; }
+    const m = $('#anMain');
+    if (m) m.innerHTML = '';
+    show();
   }
 
   function plotResult(res) {
@@ -518,7 +548,6 @@ window.Analysis = (() => {
       await load(true);
       if (!A.list.plugins.some(p => p.id === A.current)) A.current = null;
       show();
-      if (!A.current) $('#anMain').innerHTML = `<p class="muted">${t('an.pick')}</p>`;
     } catch (e) { handleError(e); }
   }
 
@@ -544,5 +573,5 @@ window.Analysis = (() => {
   }
   bind();
 
-  return { show, updateDerived, load, renderList, reset, relabel: () => { if (A.list && state.tab === 'analysis') show(); } };
+  return { show, updateDerived, load, renderList, reset, relabel: () => { if (A.list) show(); } };
 })();
