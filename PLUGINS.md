@@ -58,11 +58,12 @@ def run(df, p, ctx):
 | type | value passed to `run` | options |
 |---|---|---|
 | `column` | a column name (or `None` if `optional`) | `default` may be a **role**: `x`, `y`, `y2`, `xerr`, `yerr`, `hue`, `z` = the column used in the current figure |
-| `columns` | list of column names | `default: 'ys'` (the figure's Y columns) or `'xs'`; `min_count` |
+| `columns` | list of column names | `default: 'ys'` (the figure's Y columns) or `'xs'`; `min_count`, `max_count` |
 | `int`, `float` | number (or `None` if `optional` and empty) | `min`, `max` |
 | `bool` | `True` / `False` | |
 | `choice` | the chosen `value` | `choices: [{'value': 'a', 'label': {'en': …, 'it': …}}, …]` |
 | `text` | string | — |
+| `points` | list of `(x, y or None)` | typed one per line (`x` or `x y`) or **clicked on the figure** (*Pick on the figure*) |
 
 Every parameter takes `label` and optional `help` (a string or `{'en': …, 'it': …}`).
 `show_if: {'model': ['custom']}` shows a parameter only when another parameter has one of the
@@ -80,6 +81,10 @@ never changed. Running the analysis again replaces its layers on that copy.
 - `ctx.numeric(df, column, dropna=True)` → a numeric pandas Series.
 - `ctx.tr(en, it)` → the text in the interface language; `ctx.lang` is `'en'` or `'it'`.
 - `ctx.spec` → the current figure settings (read only).
+- `ctx.baseline(x, y, p)` → the baseline chosen in the parameters (`.values`, one per x; `.label`; `.refs`;
+  `.anchors`; `.below`, the fraction of points under it), or `None` when `p['baseline']` is not a method.
+  Declare the parameters with `from pyplotter import baselines` and `*baselines.params(extra=[…], default='arpls')`
+  in `params`: the same ids in every analysis, so a baseline defined once is offered again.
 
 `r.data(frame, plot=…)` creates a **new data set**: *Plot the result* opens it (automatically when the result has no overlay) as a figure in its own tab that you
 can style and export like any file; the "Python script" export then carries the analysis name,
@@ -91,7 +96,8 @@ figure: `kind`, `x`, `y`, `y2`, `yerr`, `series`, `text`, `axes`, `style`. Use t
 that is drawn on a copy of the original figure** (*Show on a copy of the figure*): the curve `x → y` and, if
 `lo`/`hi` are given, a shaded error band (e.g. the 95 % confidence band of a fit). Use the same x
 units as the analysed data. It returns an index that `r.data(..., plot={'overlays': [{'ref': i}]})`
-can use to draw the layer on the result figure too. The user can recolour, relabel, hide or remove
+can use to draw the layer on the result figure too. `style={'legend': False}` draws a layer without a
+legend entry (e.g. one curve per fitted peak). The user can recolour, relabel, hide or remove
 each layer under **Overlays**; layers are exported with the figure and rebuilt after a restart.
 
 Raise `ValueError('message')` for problems the user should fix; the message is shown as is.

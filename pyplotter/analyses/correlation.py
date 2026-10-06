@@ -13,7 +13,8 @@ PLUGIN = {
                     'it': 'Matrice di correlazione con p-value e intervalli di confidenza.'},
     'requires': ['scipy'],
     'params': [
-        {'id': 'columns', 'type': 'columns', 'default': 'ys', 'min_count': 2, 'label': {'en': 'Columns', 'it': 'Colonne'}},
+        {'id': 'columns', 'type': 'columns', 'default': 'ys', 'min_count': 2, 'max_count': 200,   # 19 900 pairs
+         'label': {'en': 'Columns', 'it': 'Colonne'}},
         {'id': 'method', 'type': 'choice', 'default': 'pearson', 'label': {'en': 'Coefficient', 'it': 'Coefficiente'},
          'choices': [{'value': 'pearson', 'label': 'Pearson r'}, {'value': 'spearman', 'label': 'Spearman ρ'},
                      {'value': 'kendall', 'label': 'Kendall τ'}]},

@@ -7,6 +7,7 @@ without PyPlotter: ``python make_figure.py``.
 """
 import copy
 import io
+import math
 import logging
 import warnings
 
@@ -26,6 +27,10 @@ logging.getLogger('matplotlib.font_manager').setLevel(logging.ERROR)
 
 UNITS = {'in': 1.0, 'cm': 1 / 2.54, 'mm': 1 / 25.4, 'pt': 1 / 72}
 MAX_PIXELS = 400e6
+MAX_CORR_COLUMNS = 2000      # a larger matrix has more cells than a figure has pixels
+SMOOTH_MATRIX = 512          # larger matrices are drawn anti-aliased: nearest-neighbour would drop rows
+MAX_DRAWN_SERIES = 2000      # one line, box… per column: beyond this a figure takes minutes (a heat map, not)
+WHOLE_TABLE_KINDS = {'heatmap', 'corr', 'contour', 'pairplot', 'pie', 'hexbin', 'hist2d'}   # not one artist per column
 
 DEFAULT_SPEC = {
     'kind': 'line', 'lang': 'en',
@@ -58,7 +63,13 @@ LABELS = {
 
 
 class SpecError(ValueError):
-    """The specification does not fit the data (missing column, wrong type…)."""
+    """The specification does not fit the data (missing column, wrong type…).
+
+    key and vars, when given, let the interface show the message in its own language."""
+
+    def __init__(self, message, key=None, **values):
+        super().__init__(message)
+        self.key, self.values = key, values
 
 
 # ------------------------------------------------------------------ spec helpers
@@ -653,14 +664,14 @@ def plot_heatmap(ax, d, ser, ycols):
                               shading='nearest', vmin=vmin, vmax=vmax)
             return m, spec['z']
         m = ax.imshow(mat, aspect='auto', cmap=get_cmap(spec), vmin=vmin, vmax=vmax, origin='lower',
-                      interpolation='nearest')
+                      interpolation=_matrix_interp(mat))
         _label_matrix_axes(ax, [str(c) for c in xs], [str(r) for r in ys])
         if spec['style']['annotate'] and mat.size <= 600:
             _annotate(ax, mat)
         return m, spec['z']
     cols = ycols or [c for c in d.df.columns if pd.api.types.is_numeric_dtype(d.df[c])]
-    mat = d.df[cols].apply(pd.to_numeric, errors='coerce').to_numpy(dtype=float)
-    m = ax.imshow(mat, aspect='auto', cmap=get_cmap(spec), vmin=vmin, vmax=vmax, interpolation='nearest')
+    mat = _float_matrix(d.df[cols])
+    m = ax.imshow(mat, aspect='auto', cmap=get_cmap(spec), vmin=vmin, vmax=vmax, interpolation=_matrix_interp(mat))
     rows = d.col(spec['x']).astype(str).tolist() if spec['x'] else None
     _label_matrix_axes(ax, cols, rows)
     if spec['style']['annotate'] and mat.size <= 600:
@@ -668,27 +679,68 @@ def plot_heatmap(ax, d, ser, ycols):
     return m, d.lang['value']
 
 
+def _float_matrix(frame):
+    """Columns as a float matrix; text that is not a number becomes NaN."""
+    if not all(isinstance(t, np.dtype) and t.kind in 'iuf' for t in frame.dtypes):
+        frame = frame.apply(pd.to_numeric, errors='coerce')
+    return frame.to_numpy(dtype=float)
+
+
+def _matrix_interp(mat):
+    """Nearest-neighbour cells, unless the matrix has more rows or columns than the figure has pixels."""
+    return 'antialiased' if max(mat.shape) > SMOOTH_MATRIX else 'nearest'
+
+
+def corr_columns(df, ycols):
+    """Columns of a correlation matrix: the chosen ones, or else every numeric column."""
+    cols = ycols if len(ycols) >= 2 else [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+    if len(cols) < 2:
+        raise SpecError('A correlation matrix needs at least two numeric columns.')
+    if len(cols) > MAX_CORR_COLUMNS:
+        raise SpecError(f'A correlation matrix of {len(cols):,} columns has more cells than the figure has '
+                        f'pixels: choose at most {MAX_CORR_COLUMNS:,} columns (a block), or draw a heat map.',
+                        'corr_too_many', n=len(cols), max=MAX_CORR_COLUMNS)
+    return cols
+
+
+def corr_matrix(frame):
+    """Pearson r between the columns, like pandas (pairs of rows where both values are present);
+    with nothing missing, NumPy's BLAS version, much faster on thousands of columns."""
+    mat = _float_matrix(frame)
+    if np.isnan(mat).any():
+        return pd.DataFrame(mat).corr().to_numpy()
+    with np.errstate(divide='ignore', invalid='ignore'), warnings.catch_warnings():
+        warnings.simplefilter('ignore', RuntimeWarning)              # constant columns: r is NaN
+        return np.atleast_2d(np.corrcoef(mat, rowvar=False))
+
+
 def _label_matrix_axes(ax, xlabels, ylabels):
-    def thin(labels):
-        step = max(1, int(np.ceil(len(labels) / 25)))
+    """Row and column names as tick labels: all of them for a small matrix, else as many as fit."""
+    from matplotlib.font_manager import FontProperties
+    box = ax.get_position()
+    width, height = ax.figure.get_size_inches() * 72 * (box.width, box.height)       # points
+
+    def thin(labels, room, each):
+        most = len(labels) if len(labels) <= 15 else max(2, min(25, int(room / each)))
+        step = max(1, int(np.ceil(len(labels) / most)))
         return np.arange(0, len(labels), step), [labels[i] for i in range(0, len(labels), step)]
     if xlabels is not None:
-        p, l = thin(xlabels)
-        ax.set_xticks(p, l, rotation=45 if max((len(s) for s in l), default=0) > 3 else 0,
-                      ha='right' if max((len(s) for s in l), default=0) > 3 else 'center')
+        size = FontProperties(size=matplotlib.rcParams['xtick.labelsize']).get_size_in_points()
+        slanted = max((len(s) for s in xlabels), default=0) > 3
+        p, l = thin(xlabels, width, size * (1.8 if slanted else 0.7 * max((len(s) for s in xlabels), default=1) + 1))
+        ax.set_xticks(p, l, rotation=45 if slanted else 0, ha='right' if slanted else 'center')
     if ylabels is not None:
-        p, l = thin(ylabels)
+        size = FontProperties(size=matplotlib.rcParams['ytick.labelsize']).get_size_in_points()
+        p, l = thin(ylabels, height, size * 1.5)
         ax.set_yticks(p, l)
     ax.minorticks_off()
 
 
 def plot_corr(ax, d, ser, ycols):
-    cols = ycols if len(ycols) >= 2 else [c for c in d.df.columns if pd.api.types.is_numeric_dtype(d.df[c])]
-    if len(cols) < 2:
-        raise SpecError('A correlation matrix needs at least two numeric columns.')
-    c = d.df[cols].apply(pd.to_numeric, errors='coerce').corr().to_numpy()
+    cols = corr_columns(d.df, ycols)
+    c = corr_matrix(d.df[cols])
     cmap = matplotlib.colormaps['RdBu_r' if not d.spec['style']['cmap_reverse'] else 'RdBu']
-    m = ax.imshow(c, cmap=cmap, vmin=-1, vmax=1, interpolation='nearest')
+    m = ax.imshow(c, cmap=cmap, vmin=-1, vmax=1, interpolation=_matrix_interp(c))
     _label_matrix_axes(ax, cols, cols)
     if len(cols) <= 15:
         for i in range(len(cols)):
@@ -868,10 +920,21 @@ def _apply_limits(ax, spec, xlike, kind):
             lab.set_ha('right' if 0 < float(a['xrotation']) < 90 else 'center')
 
 
+def _legend_fits(fig, ax, spec, n):
+    """Whether a legend of n entries fits in the height it has (the axes, or the figure when outside): an
+    automatic legend that does not fit is left out, as it would cover the plot or squeeze the axes."""
+    lg = spec['legend']
+    rows = math.ceil(n / max(1, int(lg['ncol'] or 1)))
+    height = fig.get_size_inches()[1] * 72 * (1 if lg['loc'].startswith('outside') else ax.get_position().height)
+    return rows * float(spec['text']['legend_size']) * 1.75 <= 0.9 * height
+
+
 def _legend(fig, ax, spec, handles, labels, kind):
     lg = spec['legend']
     show = lg['show']
     if show == 'hide' or not handles or (show == 'auto' and len(handles) < 2 and kind != 'regression'):
+        return
+    if show == 'auto' and not _legend_fits(fig, ax, spec, len(handles)):
         return
     kw = dict(frameon=bool(lg['frame']), ncol=max(1, int(lg['ncol'] or 1)), title=lg['title'] or None,
               fontsize=float(spec['text']['legend_size']), title_fontsize=float(spec['text']['legend_size']))
@@ -912,6 +975,7 @@ def _draw_overlays(ax, spec, ser, df, overlay_data):
         st = o.get('style') or {}
         label = o.get('label') or o['y']
         color = st.get('color') or ser.next(f'overlay:{o.get("id")}', label)['color']
+        shown = st.get('legend', True) is not False          # style legend=False: drawn, but not in the legend
         if color == 'text':                      # the colour of the figure's text (readable on any style)
             color = matplotlib.rcParams['text.color']
         if ser.log is not None and o.get('id') is not None:
@@ -924,14 +988,15 @@ def _draw_overlays(ax, spec, ser, df, overlay_data):
             band = sub[[o['lo'], o['hi']]].notna().all(axis=1).to_numpy()
             ax.fill_between(x[band], sub[o['lo']].to_numpy(float)[band], sub[o['hi']].to_numpy(float)[band],
                             color=color, alpha=float(st.get('band_alpha', 0.22)), linewidth=0,
-                            label=f'{label} ({o.get("band_label") or "95% CI"})', zorder=1.5)
+                            label=f'{label} ({o.get("band_label") or "95% CI"})' if shown else '_nolegend_', zorder=1.5)
         ls = st.get('linestyle', '-')
         marker = st.get('marker') or None
         ax.plot(x, sub[o['y']].to_numpy(float), color=color, ls='none' if ls in ('', 'none') else ls,
                 lw=float(st.get('linewidth') or spec['style']['linewidth']), marker=marker,
-                ms=float(st.get('markersize') or spec['style']['markersize'] * 1.4), label=label, zorder=3)
+                ms=float(st.get('markersize') or spec['style']['markersize'] * 1.4), label=label if shown else '_nolegend_',
+                zorder=3)
         if text:                                  # value labels above each point (below for minima)
-            below = marker == '^'
+            below = st['text_below'] if 'text_below' in st else marker == '^'   # older layers: from the marker
             for xv, yv, tv in zip(x, sub[o['y']].to_numpy(float), frame.loc[sub.index, text]):
                 ax.annotate(str(tv), (xv, yv), xytext=(0, -9 if below else 7), textcoords='offset points',
                             ha='center', va='top' if below else 'bottom', zorder=4,
@@ -1005,6 +1070,12 @@ def build_figure(df, spec, overlay_data=None, extra_data=None, series_log=None):
         return _pairplot(fig, Data(df, spec), Series(spec, series_log, _series_count(df, spec, [None])), spec, weight)
 
     layers = _layers(df, spec, extra_data)
+    if kind not in WHOLE_TABLE_KINDS:
+        drawn = len(spec['y']) + len(spec['y2'] or []) + sum(len(d.spec['y']) for _, d in layers[1:])
+        if drawn > MAX_DRAWN_SERIES:
+            raise SpecError(f'{drawn:,} series are too many to draw one by one (at most {MAX_DRAWN_SERIES:,}): '
+                            f'draw a heat map, or choose a block of columns.',
+                            'too_many_series', n=drawn, max=MAX_DRAWN_SERIES)
     n_series = _series_count(df, spec, layers)
     layout = spec.get('layout') or {}
     if layout.get('mode') == 'panels' and len(layers) > 1:
@@ -1193,7 +1264,25 @@ def render(df, spec, fmt='png', dpi=None, overlay_data=None, extra_data=None, in
                 kw['metadata'] = {'Creator': 'PyPlotter'}
             fig.savefig(buf, format='jpeg' if fmt == 'jpg' else fmt, dpi=dpi, transparent=transparent,
                         facecolor='auto' if not transparent else 'none', **kw)
+            if info is not None:
+                info['axes'] = axes_geometry(fig)
     return buf.getvalue()
+
+
+def axes_geometry(fig):
+    """Where each set of data axes lies in the drawn image, so a click becomes data x, y:
+    [{'box': [x0, y0, x1, y1] (fractions of the figure, from the bottom left), 'xlim', 'ylim', 'xscale', 'yscale'}].
+    Colour bars, polar axes and second y axes (same box as the first) are left out."""
+    out = []
+    for ax in fig.axes:
+        if ax.name != 'rectilinear' or ax.get_label() == '<colorbar>' or not ax.get_visible():
+            continue
+        box = [round(float(v), 5) for v in ax.get_position().extents]
+        if any(g['box'] == box for g in out):
+            continue
+        out.append({'box': box, 'xlim': [float(v) for v in ax.get_xlim()], 'ylim': [float(v) for v in ax.get_ylim()],
+                    'xscale': ax.get_xscale(), 'yscale': ax.get_yscale()})
+    return out
 
 
 if __name__ == '__main__':

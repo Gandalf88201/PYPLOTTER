@@ -50,6 +50,7 @@ class TestBuiltins(unittest.TestCase):
         ('spectrum', 'spectra', {'y': 'Sample A'}),
         ('peaks', 'spectra', {'x': 'Wavelength (nm)', 'y': 'Sample C'}),
         ('integrate', 'spectra', {'x': 'Wavelength (nm)', 'y': 'Sample A'}),
+        ('baseline', 'spectra', {'x': 'Wavelength (nm)', 'y': 'Sample C', 'baseline': 'arpls'}),
         ('recipe_gaussian', 'cloud', {'y': 'w'}),
         ('recipe_series_mean', 'kinetics', {'y': 'Concentration (mM)', 'x': 'Time (min)'}),
         ('recipe_compare_groups', 'groups', {'value': 'Response (a.u.)', 'group': 'Group'}),
@@ -142,7 +143,117 @@ class TestBuiltins(unittest.TestCase):
         self.assertAlmostEqual(res.get('centre2'), 430, delta=0.5)
         labels = res.overlays[-1]
         self.assertEqual(labels['text'], 'text')
-        self.assertEqual(list(labels['frame']['text']), ['400', '430.1'])
+        self.assertEqual([float(t) for t in labels['frame']['text']],          # the centres, 4 significant digits
+                         [float(f'{res.get(k):.4g}') for k in ('centre1', 'centre2')])
+
+    @staticmethod
+    def spectrum():
+        """Three Gaussian peaks (areas known) on a curved background, with a little noise."""
+        import numpy as np
+        x = np.linspace(0, 1000, 1001)
+        background = 0.4 + 0.0004 * x + 0.3 * np.exp(-x / 300)
+        peaks = [(1.0, 250, 12), (0.6, 520, 20), (0.8, 780, 15)]                  # height, centre, sigma
+        y = background + sum(a * np.exp(-(x - m) ** 2 / (2 * s ** 2)) for a, m, s in peaks)
+        return x, y + np.random.default_rng(1).normal(0, 0.003, x.size), background, peaks
+
+    def test_baseline_methods_follow_the_background(self):
+        import numpy as np
+        from pyplotter import baselines
+        x, y, background, peaks = self.spectrum()
+        anchors = '\n'.join(str(v) for v in (0, 120, 380, 650, 900, 1000))
+        for p, tol in [({'baseline': 'arpls', 'bl_stiffness': 6}, 0.03), ({'baseline': 'asls', 'bl_stiffness': 6}, 0.05),
+                       ({'baseline': 'snip', 'bl_width': 150}, 0.05),
+                       ({'baseline': 'points', 'bl_points': plugins.parse_points(anchors), 'bl_curve': 'smooth'}, 0.02)]:
+            with self.subTest(method=p['baseline']):
+                b = baselines.estimate(x, y, p)
+                self.assertLess(np.max(np.abs(b.values - background)), tol)
+                self.assertTrue(b.refs)
+        line = 0.2 + 0.001 * x                                    # rubber band: exact under a straight background
+        b = baselines.estimate(x, line + (y - background), {'baseline': 'rubberband'})
+        self.assertLess(np.max(np.abs(b.values - line)), 0.02)
+        shuffled = np.random.default_rng(2).permutation(x.size)  # any order of x: values follow the points
+        b2 = baselines.estimate(x[shuffled], y[shuffled], {'baseline': 'arpls'})
+        np.testing.assert_allclose(b2.values, baselines.estimate(x, y, {'baseline': 'arpls'}).values[shuffled])
+        self.assertIsNone(baselines.estimate(x, y, {'baseline': 'none'}))
+        with self.assertRaises(ValueError):
+            baselines.estimate(x, y, {'baseline': 'points', 'bl_points': []})
+
+    def test_anchor_points_text(self):
+        self.assertEqual(plugins.parse_points('100\n200 0.5; 300,5\n\n -4e-3  7'),
+                         [(100.0, None), (200.0, 0.5), (300.5, None), (-0.004, 7.0)])
+        for bad in ('100, 200', '1 2 3', 'abc', '1,000.5'):
+            with self.subTest(text=bad), self.assertRaises(plugins.PluginError):
+                plugins.parse_points(bad)
+        from pyplotter import baselines
+        import numpy as np
+        x = np.linspace(0, 10, 101)
+        b = baselines.estimate(x, x * 0 + 5, {'baseline': 'points', 'bl_anchor': 'given',
+                                              'bl_points': [(2.0, 1.0), (8.0, 3.0), (5.0, None)]})
+        np.testing.assert_allclose(b.anchors, [[2, 1], [5, 5], [8, 3]])  # no y given: read on the signal
+        self.assertAlmostEqual(b.values[0], 1.0)                         # level beyond the first point
+
+    def test_peaks_measured_above_the_baseline(self):
+        import numpy as np
+        import pandas as pd
+        x, y, background, peaks = self.spectrum()
+        df = pd.DataFrame({'x': x, 'y': y})
+        anchors = '0\n120\n380\n650\n900\n1000'
+        _, _, res = self.pm.run('peaks', df, {'x': 'x', 'y': 'y', 'baseline': 'points', 'bl_points': anchors,
+                                               'bl_curve': 'smooth', 'prominence': 0.2})
+        found = res.get('peaks')
+        self.assertEqual(len(found), 3)
+        for q, (a, m, s) in zip(found, peaks):
+            self.assertAlmostEqual(q['position'], m, delta=2)
+            self.assertAlmostEqual(q['height'], a, delta=0.03)
+            self.assertAlmostEqual(q['fwhm'], 2.3548 * s, delta=1.5)
+            self.assertAlmostEqual(q['area'], a * s * np.sqrt(2 * np.pi), delta=0.04 * a * s * np.sqrt(2 * np.pi))
+        _, _, raw = self.pm.run('peaks', df, {'x': 'x', 'y': 'y', 'baseline': 'none', 'prominence': 0.2})
+        self.assertGreater(raw.get('peaks')[0]['area'], found[0]['area'] * 1.5)   # background counted in
+        _, _, part = self.pm.run('peaks', df, {'x': 'x', 'y': 'y', 'baseline': 'arpls', 'xmin': 400, 'xmax': 1000})
+        self.assertEqual([round(q['position'] / 10) for q in part.get('peaks')], [52, 78])
+
+    def test_recipe_peak_fit_with_baseline(self):
+        import pandas as pd
+        x, y, background, peaks = self.spectrum()
+        _, _, res = self.pm.run('recipe_peak_fit', pd.DataFrame({'x': x, 'y': y}),
+                                {'x': 'x', 'y': 'y', 'baseline': 'arpls', 'bl_stiffness': 6}, lang='en')
+        self.assertEqual(res.get('n_peaks'), 3)
+        self.assertGreater(res.get('r2'), 0.995)
+        for i, (a, m, s) in enumerate(peaks, 1):
+            self.assertAlmostEqual(res.get(f'centre{i}'), m, delta=0.5)
+        base = res.overlays[0]
+        self.assertEqual(base['label'], 'baseline')
+        fit = res.overlays[1]                                     # the fit sits on the spectrum, not on zero
+        top = fit['frame'][fit['y']].max()
+        self.assertAlmostEqual(top, max(y), delta=0.05)
+
+    def test_fit_limits(self):
+        import numpy as np
+        import pandas as pd
+        x = np.linspace(0, 10, 100)
+        df = pd.DataFrame({'t': x, 's': 2.0 * np.exp(-x / 3.0)})
+        _, _, res = self.pm.run('fit_curve', df, {'x': 't', 'y': 's', 'model': 'custom', 'formula': 'a*exp(-x/tau)',
+                                                   'p0': 'a=1, tau=1', 'bounds': 'tau=0.5..2'}, lang='en')
+        self.assertAlmostEqual(res.get('tau'), 2.0, places=6)     # the true value is outside: stops at the limit
+        self.assertTrue(any('At a limit: tau' in t for t in res.texts))
+        for bad in ('tau=2..1', 'nope=0..1', 'tau=3'):
+            with self.subTest(bounds=bad), self.assertRaises(Exception):
+                self.pm.run('fit_curve', df, {'x': 't', 'y': 's', 'model': 'custom', 'formula': 'a*exp(-x/tau)',
+                                              'bounds': bad})
+
+    def test_integral_with_baseline(self):
+        import numpy as np
+        import pandas as pd
+        x, y, background, peaks = self.spectrum()
+        df = pd.DataFrame({'x': x, 'y': y})
+        a, m, s = peaks[1]
+        _, _, res = self.pm.run('integrate', df, {'x': 'x', 'y': 'y', 'xmin': 440, 'xmax': 600, 'baseline': 'ends'}, lang='en')
+        area = {v['label']: v['value'] for v in res.summary}['area (trapezoid)']
+        self.assertAlmostEqual(area, a * s * np.sqrt(2 * np.pi), delta=0.5)
+        _, _, res = self.pm.run('integrate', df, {'x': 'x', 'y': 'y', 'xmin': 440, 'xmax': 600, 'baseline': 'arpls',
+                                                  'bl_stiffness': 6}, lang='en')
+        area = {v['label']: v['value'] for v in res.summary}['area (trapezoid)']
+        self.assertAlmostEqual(area, a * s * np.sqrt(2 * np.pi), delta=0.5)
 
     def test_recipe_kinetics_finds_order(self):
         import numpy as np
@@ -376,6 +487,14 @@ class TestUserPlugins(unittest.TestCase):
         r = self.pm.save('noid.py', 'PLUGIN = {}\ndef run(df, p, ctx):\n    return ctx.result()\n')
         self.assertTrue(r['errors'])
         self.assertIn('fit_curve', self.pm.plugins)        # built-ins still there
+
+    def test_column_count_limits(self):
+        params = [{'id': 'cols', 'type': 'columns', 'min_count': 2, 'max_count': 3, 'label': {'en': 'Columns'}}]
+        df = samples.make('cloud')
+        self.assertEqual(plugins.coerce_params(params, {'cols': ['x', 'y', 'z']}, df)['cols'], ['x', 'y', 'z'])
+        for chosen in (['x'], ['x', 'y', 'z', 'w']):
+            with self.assertRaises(plugins.PluginError):
+                plugins.coerce_params(params, {'cols': chosen}, df)
 
     def test_unsafe_file_names_rejected(self):
         for name in ('../evil.py', 'a/b.py', 'x.sh', '.hidden.py'):

@@ -73,8 +73,8 @@ window.Files = (() => {
   // Columns used for another file: the user's choice, else the same names as the current figure, else its defaults.
   function resolved(e) {
     const st = F.settings[e.id] || {};
-    const cols = e.ds.columns.map(c => c.name);
-    const has = c => c && cols.includes(c);
+    const cols = new Set(e.ds.columns.map(c => c.name));
+    const has = c => c && cols.has(c);
     const s = state.spec;
     const x = st.x !== undefined ? st.x : (has(s.x) ? s.x : e.ds.mapping.x);
     let y = st.y;
@@ -178,18 +178,10 @@ window.Files = (() => {
       fy.className = 'field';
       fy.innerHTML = `<label>${t('map.y')}</label>`;
       const cl = document.createElement('div');
-      cl.className = 'checklist';
-      e.ds.columns.forEach(c => {
-        const lab = document.createElement('label');
-        const ci = document.createElement('input');
-        ci.type = 'checkbox';
-        ci.value = c.name;
-        ci.checked = r.y.includes(c.name);
-        ci.onchange = () => { st.y = $$('input', cl).filter(i => i.checked).map(i => i.value); buildSeries(); scheduleRender(0); };
-        const sp = document.createElement('span');
-        sp.textContent = c.name;
-        lab.append(ci, sp);
-        cl.append(lab);
+      columnPicker(cl, {
+        columns: e.ds.columns, selected: r.y, tags: false,
+        pickable: c => c.kind === 'numeric' && c.name !== resolved(e).x,
+        onChange: list => { st.y = list; buildSeries(); scheduleRender(0); },
       });
       fy.append(cl);
       const fe = document.createElement('div');

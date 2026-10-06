@@ -40,6 +40,11 @@ for fmt in {formats!r}:
 '''
 
 
+
+# Matplotlib marker → Plotly symbol, for the layers of the interactive HTML.
+PLOTLY_MARKERS = {'o': 'circle', 's': 'square', '^': 'triangle-up', 'v': 'triangle-down', 'D': 'diamond',
+                  'x': 'x', '+': 'cross', '*': 'star', '.': 'circle'}
+
 def used_columns(spec):
     cols = [spec.get('x'), spec.get('hue'), spec.get('z'), spec.get('xerr'), spec.get('yerr'),
             *(spec.get('y') or []), *(spec.get('y2') or [])]
@@ -215,14 +220,14 @@ def plotly_html(df, spec, overlay_data=None, extra_data=None):
             fig.update_layout(barmode='stack' if st['stacked'] else 'overlay')
     elif kind in ('heatmap', 'contour', 'corr'):
         if kind == 'corr':
-            cols = ycols if len(ycols) >= 2 else [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
-            mat = df[cols].corr()
-            fig.add_trace(go.Heatmap(z=mat.to_numpy(), x=cols, y=cols, colorscale='RdBu', zmin=-1, zmax=1, reversescale=True))
+            cols = plotting.corr_columns(df, ycols)
+            fig.add_trace(go.Heatmap(z=plotting.corr_matrix(df[cols]), x=cols, y=cols, colorscale='RdBu',
+                                     zmin=-1, zmax=1, reversescale=True))
         else:
             grid = plotting._grid_from_xyz(d)
             if grid is None:
                 cols = ycols or [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
-                fig.add_trace(go.Heatmap(z=df[cols].to_numpy(dtype=float), x=cols, colorscale=cscale))
+                fig.add_trace(go.Heatmap(z=plotting._float_matrix(df[cols]), x=cols, colorscale=cscale))
             else:
                 trace = go.Contour if kind == 'contour' else go.Heatmap
                 fig.add_trace(trace(z=grid.to_numpy(dtype=float), x=list(grid.columns), y=list(grid.index),
@@ -262,18 +267,23 @@ def plotly_html(df, spec, overlay_data=None, extra_data=None):
         if c == 'text':                       # "the figure's text colour" (see plotting._draw_overlays)
             c = '#444444'
         name = o.get('label') or o['y']
+        legend = st.get('legend', True) is not False
         if o.get('lo') in sub and o.get('hi') in sub and o.get('band', True):
             fig.add_trace(go.Scatter(x=sub[o['x']], y=sub[o['hi']], mode='lines', line={'width': 0}, showlegend=False,
                                      hoverinfo='skip'))
             fig.add_trace(go.Scatter(x=sub[o['x']], y=sub[o['lo']], mode='lines', line={'width': 0}, fill='tonexty',
-                                     fillcolor=c, opacity=0.25, name=f'{name} ({o.get("band_label") or "95% CI"})'))
+                                     fillcolor=c, opacity=0.25, name=f'{name} ({o.get("band_label") or "95% CI"})',
+                                     showlegend=legend))
         marker_only = st.get('linestyle') in ('none', '')
         labels = sub[o['text']].astype(str) if o.get('text') in sub else None
-        mode = ('markers' if marker_only else 'lines') + ('+text' if labels is not None else '')
-        fig.add_trace(go.Scatter(x=sub[o['x']], y=sub[o['y']], name=name, mode=mode, text=labels,
-                                 textposition='bottom center' if st.get('marker') == '^' else 'top center',
+        parts = ['markers'] if marker_only else ['lines'] + (['markers'] if st.get('marker') else [])
+        mode = '+'.join(parts + (['text'] if labels is not None else []))
+        below = st['text_below'] if 'text_below' in st else st.get('marker') == '^'
+        fig.add_trace(go.Scatter(x=sub[o['x']], y=sub[o['y']], name=name, mode=mode, text=labels, showlegend=legend,
+                                 textposition='bottom center' if below else 'top center',
                                  line={'color': c, 'dash': 'dash' if st.get('linestyle') == '--' else None},
-                                 marker={'color': c, 'size': 9, 'symbol': 'triangle-down' if st.get('marker') == 'v' else 'circle'}))
+                                 marker={'color': c, 'size': 1.33 * float(st.get('markersize') or 7),
+                                         'symbol': PLOTLY_MARKERS.get(st.get('marker') or 'o', 'circle')}))
 
     t, a = spec['text'], spec['axes']
     font = t['font'] or 'Arial, Helvetica, sans-serif'

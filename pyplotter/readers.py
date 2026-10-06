@@ -5,6 +5,7 @@
 Text files are sniffed: comment lines, separator, decimal comma, header row and encoding.
 """
 import bz2
+from contextlib import closing
 import csv
 import gzip
 import io
@@ -389,7 +390,8 @@ def _mat_tables(path):
 
 
 def _sqlite(path):
-    return sqlite3.connect(f'file:{Path(path).as_posix()}?mode=ro', uri=True)
+    # closing(): a connection used in `with` only commits; it stays open (and the file locked on Windows).
+    return closing(sqlite3.connect(f'file:{Path(path).as_posix()}?mode=ro', uri=True))
 
 
 # ------------------------------------------------------------------ reading

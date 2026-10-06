@@ -1,4 +1,5 @@
 """Column profiling, default data mapping and plot-type recommendations."""
+import bisect
 import re
 
 import numpy as np
@@ -19,25 +20,77 @@ def column_kind(s):
     return 'category'
 
 
+MAX_UNIQUE_ROWS = 2_000_000      # longer columns: distinct values are not counted
+BLOCK_CELLS = 4_000_000          # cells profiled at a time by profile_block
+
+
 def profile(df):
+    """One entry per column: kind, dtype, missing and distinct values; range, monotony and integers for numbers.
+
+    Plain integer and float columns are profiled a block at a time with NumPy, so that tables with
+    tens of thousands of columns open in seconds; the other columns, one by one.
+    """
+    fast = profile_block(df) if len(df) <= MAX_UNIQUE_ROWS else {}
     cols = []
-    for name in df.columns:
-        s = df[name]
-        kind = column_kind(s)
-        info = {'name': name, 'kind': kind, 'dtype': str(s.dtype), 'missing': int(s.isna().sum()),
-                'unique': int(s.nunique(dropna=True)) if len(s) <= 2_000_000 else None}
-        if kind == 'numeric':
-            v = pd.to_numeric(s, errors='coerce').dropna()
-            info['min'] = _num(v.min()) if len(v) else None
-            info['max'] = _num(v.max()) if len(v) else None
-            info['monotonic'] = bool(len(v) > 2 and (v.is_monotonic_increasing or v.is_monotonic_decreasing)
-                                     and v.nunique() > 0.5 * len(v))
-            info['integer'] = bool(len(v) and np.all(np.mod(v.to_numpy(dtype=float), 1) == 0))
-        elif kind == 'datetime':
-            info['monotonic'] = bool(s.dropna().is_monotonic_increasing)
+    for i, name in enumerate(df.columns):
+        info = {'name': name, **(fast.get(i) or profile_column(df.iloc[:, i]))}
         info['is_error'] = bool(ERROR_NAME.search(str(name)))
         cols.append(info)
     return cols
+
+
+def profile_column(s):
+    kind = column_kind(s)
+    info = {'kind': kind, 'dtype': str(s.dtype), 'missing': int(s.isna().sum()),
+            'unique': int(s.nunique(dropna=True)) if len(s) <= MAX_UNIQUE_ROWS else None}
+    if kind == 'numeric':
+        v = pd.to_numeric(s, errors='coerce').dropna()
+        info['min'] = _num(v.min()) if len(v) else None
+        info['max'] = _num(v.max()) if len(v) else None
+        info['monotonic'] = bool(len(v) > 2 and (v.is_monotonic_increasing or v.is_monotonic_decreasing)
+                                 and v.nunique() > 0.5 * len(v))
+        with np.errstate(invalid='ignore'):
+            info['integer'] = bool(len(v) and np.all(np.mod(v.to_numpy(dtype=float), 1) == 0))
+    elif kind == 'datetime':
+        info['monotonic'] = bool(s.dropna().is_monotonic_increasing)
+    return info
+
+
+def profile_block(df):
+    """profile_column for every plain int/float column, vectorised: {position: info}."""
+    groups = {}
+    for i, dt in enumerate(df.dtypes):
+        if isinstance(dt, np.dtype) and dt.kind in 'iuf':
+            groups.setdefault(dt, []).append(i)
+    n = len(df)
+    step = max(1, BLOCK_CELLS // max(n, 1))
+    out = {}
+    for dt, where in groups.items():
+        for start in range(0, len(where), step):
+            part = where[start:start + step]
+            a = df.iloc[:, part].to_numpy(dtype=dt)
+            nan = np.isnan(a) if dt.kind == 'f' else np.zeros(a.shape, dtype=bool)
+            valid = n - nan.sum(axis=0)
+            s = np.sort(a, axis=0)                                   # missing values sort last
+            change = (s[1:] != s[:-1]) & (np.arange(1, n)[:, None] < valid)
+            unique = (valid > 0) + change.sum(axis=0)
+            full = valid == n
+            up = (a[1:] >= a[:-1]).all(axis=0)
+            down = (a[1:] <= a[:-1]).all(axis=0)
+            with np.errstate(invalid='ignore'):
+                whole = ((np.mod(a, 1) == 0) | nan).all(axis=0) if dt.kind == 'f' else np.ones(len(part), bool)
+            for j, col in enumerate(part):
+                c = int(valid[j])
+                if full[j] or c <= 2:
+                    mono = bool(up[j] or down[j])
+                else:                                                # gaps: the order of what is left
+                    v = a[~nan[:, j], j]
+                    mono = bool((v[1:] >= v[:-1]).all() or (v[1:] <= v[:-1]).all())
+                out[col] = {'kind': 'numeric', 'dtype': str(dt), 'missing': n - c, 'unique': int(unique[j]),
+                            'min': _num(s[0, j]) if c else None, 'max': _num(s[c - 1, j]) if c else None,
+                            'monotonic': bool(c > 2 and mono and unique[j] > 0.5 * c),
+                            'integer': bool(c and whole[j])}
+    return out
 
 
 def _num(v):
@@ -57,12 +110,18 @@ def _discrete(info, n):
 def find_grid(cols, n_rows):
     """(x, y, z) when two numeric columns form a regular grid (nx·ny = rows) and a third holds values."""
     numeric = [c for c in cols if c['kind'] == 'numeric' and c.get('unique')]
+    by_unique = {}                     # distinct values -> positions: linear in the number of columns
+    for i, c in enumerate(numeric):
+        by_unique.setdefault(c['unique'], []).append(i)
     for i, a in enumerate(numeric):
-        for b in numeric[i + 1:]:
-            if a['unique'] >= 3 and b['unique'] >= 3 and a['unique'] * b['unique'] == n_rows:
-                rest = [c['name'] for c in numeric if c['name'] not in (a['name'], b['name'])]
-                if rest:
-                    return a['name'], b['name'], rest[0]
+        if a['unique'] < 3 or n_rows % a['unique'] or n_rows // a['unique'] < 3:
+            continue
+        later = by_unique.get(n_rows // a['unique'], [])
+        for j in later[bisect.bisect_right(later, i):]:
+            b = numeric[j]
+            rest = next((c['name'] for c in numeric if c['name'] not in (a['name'], b['name'])), None)
+            if rest is not None:
+                return a['name'], b['name'], rest
     return None
 
 

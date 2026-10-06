@@ -1,4 +1,5 @@
 """Backend tests: python -m unittest discover -s tests (needs numpy, pandas, matplotlib)."""
+from contextlib import closing
 import gzip
 import io
 import json
@@ -16,6 +17,7 @@ clean_appledouble()
 
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
+import matplotlib  # noqa: E402
 
 from pyplotter import catalog, exporters, plotting, readers, samples, smart  # noqa: E402
 from pyplotter.modules import ModuleManager, PipProgress, Job, version_tuple, load_registry  # noqa: E402
@@ -189,7 +191,7 @@ class TestReaders(TempDir):
         self.assertEqual(readers.list_tables(self.dir / 'a.npz', 'numpy'), ['first', 'grid'])
         self.assertEqual(readers.read_table(self.dir / 'a.npz', 'numpy', 'grid')[0].shape, (4, 3))
         db = self.dir / 'a.sqlite'
-        with sqlite3.connect(db) as con:
+        with closing(sqlite3.connect(db)) as con, con:
             con.execute('CREATE TABLE "my table" (x REAL, y REAL)')
             con.executemany('INSERT INTO "my table" VALUES (?, ?)', [(1, 2), (3, 4)])
         self.assertEqual(readers.list_tables(db, 'sqlite'), ['my table'])
@@ -246,6 +248,59 @@ class TestSmart(unittest.TestCase):
         df = samples.make('cloud')
         recs = smart.recommend(smart.profile(df), {'x': 'x', 'y': ['y']}, len(df))
         self.assertIn(recs[0]['kind'], ('scatter', 'hexbin'))
+
+
+    def test_block_profile_matches_column_profile(self):
+        rng = np.random.default_rng(3)
+        for n in (0, 1, 2, 3, 40):
+            df = pd.DataFrame({
+                'f': rng.normal(size=n), 'i': rng.integers(0, 5, n), 'up': np.arange(n, dtype=float),
+                'down': -np.arange(n), 'const': np.ones(n), 'u8': rng.integers(0, 3, n).astype(np.uint8),
+                'f32': rng.normal(size=n).astype(np.float32), 'whole': rng.integers(0, 9, n).astype(float),
+                'half': np.arange(n) + 0.5, 'txt': (['a', 'b'] * n)[:n], 'flag': rng.integers(0, 2, n).astype(bool),
+                'when': pd.date_range('2020', periods=n, freq='D'), 'Int': pd.array(rng.integers(0, 4, n), dtype='Int64'),
+            })
+            if n >= 3:
+                gap = np.arange(n, dtype=float)
+                gap[1] = np.nan
+                holes = rng.normal(size=n)
+                holes[::2] = np.nan
+                big = np.arange(n, dtype=float)
+                big[-1] = np.inf
+                df = df.assign(gap=gap, holes=holes, empty=np.nan, big=big)
+            fast = smart.profile_block(df)
+            plain = [i for i, t in enumerate(df.dtypes) if isinstance(t, np.dtype) and t.kind in 'iuf']
+            self.assertEqual(sorted(fast), plain)
+            for i in plain:
+                self.assertEqual(fast[i], smart.profile_column(df.iloc[:, i]), (n, df.columns[i]))
+
+    def test_grid_search_is_linear_and_unchanged(self):
+        def quadratic(cols, n_rows):             # the former search, pair by pair
+            numeric = [c for c in cols if c['kind'] == 'numeric' and c.get('unique')]
+            for i, a in enumerate(numeric):
+                for b in numeric[i + 1:]:
+                    if a['unique'] >= 3 and b['unique'] >= 3 and a['unique'] * b['unique'] == n_rows:
+                        rest = [c['name'] for c in numeric if c['name'] not in (a['name'], b['name'])]
+                        if rest:
+                            return a['name'], b['name'], rest[0]
+            return None
+        rng = np.random.default_rng(4)
+        for _ in range(300):
+            cols = [{'name': f'c{j}', 'kind': str(rng.choice(['numeric', 'category'])),
+                     'unique': int(rng.choice([0, 1, 2, 3, 4, 5, 6, 8, 12, 20]))} for j in range(rng.integers(2, 9))]
+            n_rows = int(rng.choice([12, 16, 24, 36, 60]))
+            self.assertEqual(smart.find_grid(cols, n_rows), quadratic(cols, n_rows))
+
+    def test_wide_table_opens_quickly(self):
+        rng = np.random.default_rng(5)
+        df = pd.DataFrame(rng.normal(size=(50, 20000)), columns=[str(40 * i) for i in range(20000)])
+        df.insert(0, 'frame', np.arange(50))
+        start = time.perf_counter()
+        cols = smart.profile(df)
+        mapping = smart.default_mapping(cols, len(df))
+        self.assertLess(time.perf_counter() - start, 10)          # was ~45 s, column by column
+        self.assertEqual(mapping['x'], 'frame')
+        self.assertEqual(len(cols), 20001)
 
 
 class TestPlotting(unittest.TestCase):
@@ -400,6 +455,30 @@ class TestPlotting(unittest.TestCase):
         self.assertIn('>450<', svg.replace(' ', ''))
         self.assertIn('>520<', svg.replace(' ', ''))
 
+    def test_overlay_markers_of_their_own(self):
+        """A layer's markers (e.g. peak markers) take their own shape and size; the value labels stay where
+        the analysis put them whatever the marker."""
+        import copy
+        df = samples.make('spectra')
+        frame = pd.DataFrame({'Wavelength (nm)': [450.0, 520.0], 'top': [1.0, 0.5], 'text': ['450', '520']})
+        for marker, size, below in (('s', 9.0, False), ('^', 4.0, False), ('o', None, True)):
+            spec = copy.deepcopy(plotting.DEFAULT_SPEC)
+            spec.update(kind='line', x='Wavelength (nm)', y=['Sample A'])
+            style = {'linestyle': 'none', 'marker': marker, 'text_below': below}
+            if size:
+                style['markersize'] = size
+            spec['overlays'] = [{'id': 'p', 'dataset_id': 'd', 'x': 'Wavelength (nm)', 'y': 'top', 'text': 'text',
+                                 'style': style}]
+            spec = plotting.normalize_spec(spec)
+            with plotting.style_context(spec), matplotlib.rc_context(plotting._rc(spec)):
+                ax = plotting.build_figure(df, spec, overlay_data={'p': frame}).axes[0]
+            line = [ln for ln in ax.get_lines() if list(ln.get_xdata()) == [450.0, 520.0]][0]
+            self.assertEqual(line.get_marker(), marker)
+            if size:
+                self.assertEqual(line.get_markersize(), size)
+            offsets = {a.get_text(): a.xyann[1] for a in ax.texts}
+            self.assertEqual(offsets['450'] < 0, below)      # below the point only when asked
+
     def test_customisation(self):
         df = samples.make('spectra')
         spec = {'kind': 'line', 'x': 'Wavelength (nm)', 'y': ['Sample A', 'Sample B'],
@@ -436,6 +515,69 @@ class TestPlotting(unittest.TestCase):
             self.assertTrue((Path(tmp) / 'fig' / 'extra_2.csv').exists())
             out = subprocess.run([sys.executable, 'make_figure.py'], cwd=Path(tmp) / 'fig', capture_output=True, text=True)
             self.assertEqual(out.returncode, 0, out.stderr)
+
+    def test_many_columns(self):
+        rng = np.random.default_rng(6)
+        df = pd.DataFrame(rng.normal(size=(30, 3000)), columns=[f'c{i}' for i in range(3000)])
+        png = plotting.render(df, {'kind': 'heatmap', 'y': list(df.columns)}, 'png', dpi=50)
+        self.assertTrue(png.startswith(b'\x89PNG'))
+        with self.assertRaises(plotting.SpecError) as err:
+            plotting.render(df, {'kind': 'corr', 'y': list(df.columns)}, 'png', dpi=50)
+        self.assertEqual(err.exception.key, 'corr_too_many')
+        self.assertEqual(err.exception.values, {'n': 3000, 'max': plotting.MAX_CORR_COLUMNS})
+        with self.assertRaises(plotting.SpecError) as err:                  # one line per column: too many
+            plotting.render(df, {'kind': 'line', 'y': list(df.columns)}, 'png', dpi=50)
+        self.assertEqual(err.exception.key, 'too_many_series')
+        fig = plotting.build_figure(df, {'kind': 'line', 'y': list(df.columns[:60])})
+        self.assertIsNone(fig.axes[0].get_legend())                           # 60 entries: no automatic legend
+        fig = plotting.build_figure(df, {'kind': 'line', 'y': list(df.columns[:60]), 'legend': {'show': 'show'}})
+        self.assertIsNotNone(fig.axes[0].get_legend())
+        fig = plotting.build_figure(df, {'kind': 'line', 'y': list(df.columns[:4])})
+        self.assertIsNotNone(fig.axes[0].get_legend())                        # a few entries: it fits
+        small = df.iloc[:, :6].copy()
+        small['flat'] = 1.0                                        # constant: r is undefined
+        np.testing.assert_allclose(plotting.corr_matrix(small), small.corr().to_numpy(), atol=1e-12)
+        small.iloc[::3, 1] = np.nan                                # gaps: pairwise, like pandas
+        np.testing.assert_allclose(plotting.corr_matrix(small), small.corr().to_numpy(), atol=1e-12)
+
+    def test_axes_geometry_maps_clicks_to_data(self):
+        import matplotlib
+        df = pd.DataFrame({'x': np.linspace(400, 4000, 50), 'y': np.linspace(1, 100, 50)})
+        for scale in ('linear', 'log'):
+            spec = plotting.normalize_spec({'kind': 'line', 'x': 'x', 'y': ['y'], 'axes': {'yscale': scale}})
+            with plotting.style_context(spec), matplotlib.rc_context(plotting._rc(spec)):
+                fig = plotting.build_figure(df, spec)
+                fig.savefig(io.BytesIO(), format='png', dpi=80)
+                g = plotting.axes_geometry(fig)
+                self.assertEqual(len(g), 1)
+                ax = fig.axes[0]
+                px, py = ax.transData.transform((1500.0, 20.0))         # where matplotlib draws the point
+                w, h = fig.get_size_inches() * fig.dpi
+                fx, fy = px / w, py / h
+                box = g[0]['box']
+                u = (fx - box[0]) / (box[2] - box[0])
+                x = g[0]['xlim'][0] + u * (g[0]['xlim'][1] - g[0]['xlim'][0])
+                v = (fy - box[1]) / (box[3] - box[1])
+                if g[0]['yscale'] == 'log':
+                    lo, hi = np.log10(g[0]['ylim'])
+                    y = 10 ** (lo + v * (hi - lo))
+                else:
+                    y = g[0]['ylim'][0] + v * (g[0]['ylim'][1] - g[0]['ylim'][0])
+                self.assertAlmostEqual(x, 1500.0, delta=1.0)
+                self.assertAlmostEqual(y, 20.0, delta=0.2)
+        info = {}
+        plotting.render(df, {'kind': 'heatmap', 'y': ['x', 'y']}, 'png', dpi=40, info=info)
+        self.assertEqual(len(info['axes']), 1)                          # the colour bar is left out
+
+    def test_preview_of_a_wide_table(self):
+        from pyplotter import server
+        with tempfile.TemporaryDirectory() as tmp:
+            app = server.App('t' * 32, tmp, ModuleManager(state_dir=tmp, online=False), 10 ** 9)
+            df = pd.DataFrame(np.zeros((3, 500)), columns=[f'c{i}' for i in range(500)])
+            ds = app._register(df, 'wide', {'sample': 'x'}, {})
+            self.assertEqual(len(ds['columns']), 500)
+            self.assertEqual(ds['preview_cols'], server.PREVIEW_COLS)
+            self.assertEqual({len(row) for row in ds['preview']}, {server.PREVIEW_COLS})
 
     def test_bad_spec(self):
         with self.assertRaises(plotting.SpecError):

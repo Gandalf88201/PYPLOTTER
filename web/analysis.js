@@ -4,7 +4,9 @@
 'use strict';
 
 window.Analysis = (() => {
-  const A = { list: null, current: null, params: {}, results: {}, editing: null };
+  // shared: the baseline parameters (baseline, bl_…) of the last analysis run on data with these columns,
+  // offered again by every analysis that has them — define the baseline once, then analyse.
+  const A = { list: null, current: null, params: {}, results: {}, editing: null, shared: {} };
   const CATS = ['recipe', 'fit', 'timeseries', 'stats', 'signal', 'custom'];
   const L = obj => (obj && typeof obj === 'object') ? (obj[state.lang] || obj.en || '') : (obj ?? '');
   // Layers drawn over the original figure (others belong only to the result's own plot).
@@ -77,8 +79,8 @@ window.Analysis = (() => {
   // ---------------------------------------------------------------- form
   function roleValue(role) {
     const s = state.spec;
-    const cols = state.dataset.columns.map(c => c.name);
-    const has = c => c && cols.includes(c);
+    const cols = new Set(state.dataset.columns.map(c => c.name));
+    const has = c => c && cols.has(c);
     const numeric = state.dataset.columns.filter(c => c.kind === 'numeric').map(c => c.name);
     const ys = s.y.filter(has).length ? s.y.filter(has) : numeric.filter(c => c !== s.x).slice(0, 1);
     switch (role) {
@@ -128,7 +130,14 @@ window.Analysis = (() => {
       main.append(ol);
     }
 
-    const values = A.params[paramKey(id)] || {};
+    stopPick();
+    const values = { ...(A.params[paramKey(id)] || {}) };
+    const shared = A.shared[columnsKey()] || {};
+    p.params.forEach(prm => {
+      if (!isBaselineParam(prm.id) || shared[prm.id] === undefined) return;
+      if (prm.type === 'choice' && !prm.choices.some(c => c.value === shared[prm.id])) return;
+      values[prm.id] = shared[prm.id];
+    });
     const form = document.createElement('div');
     form.className = 'an-form';
     p.params.forEach(prm => form.append(field(prm, values[prm.id] !== undefined ? values[prm.id] : defaultValue(prm))));
@@ -141,6 +150,8 @@ window.Analysis = (() => {
         const el = $(`#anMain [data-param="${CSS.escape(prm.id)}"]`);
         if (el) el.hidden = !Object.entries(prm.show_if).every(([k, vals]) => [].concat(vals).includes(now[k]));
       });
+      if (Pick.session && Pick.session.owner && Pick.session.owner.closest('[hidden]')) stopPick();
+      drawPickMarks();                      // e.g. the height of the points: on the signal or as clicked
     };
     form.addEventListener('change', applyShowIf);
     applyShowIf();
@@ -186,11 +197,13 @@ window.Analysis = (() => {
 
   function plugin() { return A.list.plugins.find(p => p.id === A.current); }
   // Remembered parameters apply only to data with the same columns.
-  function paramKey(id) { return id + '|' + state.dataset.columns.map(c => c.name).join('\u0001'); }
+  function columnsKey() { return state.dataset.columns.map(c => c.name).join('\u0001'); }
+  function paramKey(id) { return id + '|' + columnsKey(); }
+  const isBaselineParam = id => id === 'baseline' || id.startsWith('bl_');
 
   function field(prm, value) {
     const f = document.createElement('div');
-    f.className = 'field' + (prm.type === 'text' || prm.type === 'columns' ? ' wide' : '');
+    f.className = 'field' + (['text', 'columns', 'points'].includes(prm.type) ? ' wide' : '');
     f.dataset.param = prm.id;
     f.dataset.type = prm.type;
     const label = document.createElement('label');
@@ -202,18 +215,9 @@ window.Analysis = (() => {
       fillSelect(input, [...(prm.optional ? [['', t('map.none')]] : []), ...cols.map(c => [c.name, c.name])], value || '');
     } else if (prm.type === 'columns') {
       input = document.createElement('div');
-      input.className = 'checklist';
-      cols.forEach(c => {
-        const lab = document.createElement('label');
-        const cb = document.createElement('input');
-        cb.type = 'checkbox';
-        cb.value = c.name;
-        cb.checked = (value || []).includes(c.name);
-        const sp = document.createElement('span');
-        sp.textContent = c.name;
-        lab.append(cb, sp);
-        input.append(lab);
-      });
+      input.picker = columnPicker(input, { columns: cols, selected: value || [], tags: false, onChange: () => {} });
+    } else if (prm.type === 'points') {
+      input = pointsField(value);
     } else if (prm.type === 'choice') {
       input = document.createElement('select');
       fillSelect(input, prm.choices.map(c => [c.value, L(c.label)]), value);
@@ -248,11 +252,66 @@ window.Analysis = (() => {
     return f;
   }
 
+  // Points typed one per line ("x" or "x y"), or clicked on the figure. With the height read from the
+  // signal (bl_anchor = signal) a click writes only x; otherwise x and the clicked y.
+  function pointsField(value) {
+    const wrap = document.createElement('div');
+    wrap.className = 'points-field';
+    const area = document.createElement('textarea');
+    area.rows = 4;
+    area.spellcheck = false;
+    area.placeholder = t('an.points_ph');
+    area.value = Array.isArray(value) ? value.map(q => (q[1] === null || q[1] === undefined ? `${q[0]}` : `${q[0]} ${q[1]}`)).join('\n') : (value || '');
+    const bar = document.createElement('div');
+    bar.className = 'mini';
+    const pick = document.createElement('button');
+    pick.type = 'button';
+    pick.className = 'btn small primary';
+    pick.textContent = t('an.figpick');
+    const undo = document.createElement('button');
+    undo.type = 'button';
+    undo.className = 'btn small';
+    undo.textContent = t('an.figpick_undo');
+    const clear = document.createElement('button');
+    clear.type = 'button';
+    clear.className = 'btn small';
+    clear.textContent = t('an.figpick_clear');
+    const lines = () => area.value.split(/\n/).filter(l => l.trim());
+    const changed = () => { area.dispatchEvent(new Event('change', { bubbles: true })); drawPickMarks(); };
+    const given = () => { const sel = $('#anMain [data-param="bl_anchor"] select'); return sel && sel.value === 'given'; };
+    pick.onclick = () => {
+      if (Pick.session && Pick.session.owner === area) { stopPick(); return; }
+      const ok = startPick({
+        owner: area,
+        onPoint: ({ x, y }) => { area.value = [...lines(), given() ? `${x} ${y}` : x].join('\n'); changed(); },
+        marks: () => parsePoints(area.value).map(([x, y]) => ({ x, y: given() ? y : null })),
+        onStop: () => { pick.textContent = t('an.figpick'); pick.classList.add('primary'); },
+      });
+      if (ok) { pick.textContent = t('an.figpick_stop'); pick.classList.remove('primary'); }
+    };
+    undo.onclick = () => { area.value = lines().slice(0, -1).join('\n'); changed(); };
+    clear.onclick = () => { area.value = ''; changed(); };
+    area.addEventListener('input', drawPickMarks);
+    bar.append(pick, undo, clear);
+    wrap.append(area, bar);
+    return wrap;
+  }
+
+  // [[x, y|null], …] from the text of a points field (lines that are not points are skipped here; the
+  // service reports them when the analysis runs).
+  function parsePoints(text) {
+    const num = tok => Number(/^[-+]?\d+,\d+$/.test(tok) ? tok.replace(',', '.') : tok);
+    return text.split(/[;\n]+/).map(l => l.trim().split(/\s+/).filter(Boolean).map(num))
+      .filter(v => (v.length === 1 || v.length === 2) && v.every(Number.isFinite))
+      .map(v => [v[0], v.length === 2 ? v[1] : null]);
+  }
+
   function readForm() {
     const out = {};
     $$('#anMain .an-form [data-param]').forEach(f => {
       const type = f.dataset.type;
-      if (type === 'columns') out[f.dataset.param] = $$('input', f).filter(i => i.checked).map(i => i.value);
+      if (type === 'columns') out[f.dataset.param] = $('.col-pick', f).picker.get();
+      else if (type === 'points') out[f.dataset.param] = $('textarea', f).value;
       else if (type === 'bool') out[f.dataset.param] = $('input', f).checked;
       else {
         const el = $('select, input', f);
@@ -270,8 +329,12 @@ window.Analysis = (() => {
       await load(true);
       renderList();
     }
+    stopPick();
     const params = readForm();
     A.params[paramKey(p.id)] = params;
+    if ('baseline' in params) {
+      A.shared[columnsKey()] = Object.fromEntries(Object.entries(params).filter(([k]) => isBaselineParam(k)));
+    }
     btn.disabled = true;
     const old = btn.textContent;
     btn.textContent = t('an.running');

@@ -14,6 +14,7 @@ const state = {
   meta: null, status: null, defaults: null, spec: null,
   file: null, dataset: null, source: null, recommend: [], history: [],
   renderSeq: 0, renderCtrl: null, renderTimer: null, fitDpi: 96, tab: 'figure', busyJob: null,
+  axesGeom: [],                                     // where the axes lie in the figure drawn last (X-Axes)
   views: [], view: null, mainSpec: null, mainDataset: null, mainRecommend: null,   // see "figure copies"
 };
 
@@ -52,6 +53,14 @@ function t(key, vars) {
   let s = dict[key] ?? window.I18N.en[key] ?? key;
   if (vars) s = s.replace(/\{(\w+)\}/g, (m, k) => (vars[k] ?? m));
   return s;
+}
+// A figure that cannot be drawn: the server's message, in the interface language when it has a key.
+function specMessage(e) {
+  const key = e.data && e.data.key && 'error.' + e.data.key;
+  if (!key || !(key in window.I18N.en)) return e.message;
+  const vars = Object.fromEntries(Object.entries(e.data.values || {})
+    .map(([k, v]) => [k, typeof v === 'number' ? v.toLocaleString(LOCALE()) : v]));
+  return t(key, vars);
 }
 function applyI18n(root = document) {
   document.documentElement.lang = state.lang;
@@ -483,28 +492,154 @@ function columnOptions(includeNone, noneLabel) {
 }
 const KIND_TAG = { numeric: '123', category: 'abc', datetime: 'date' };
 
-function buildChecklist(box, selected, key) {
+// Choice of several columns, quick with tens of thousands of them: the rows are drawn a page at a
+// time as the list scrolls. "All" and "None" act on the columns the filter shows; Shift+click ticks
+// or clears a whole block; the filter also takes a range of numeric names (19600-19840) or of
+// positions (#1-500). Returns {get, set}; onChange gets the chosen names in column order.
+const PICK_PAGE = 200;
+const PICK_TOOLS_FROM = 8;          // fewer columns: just the list
+
+function columnPicker(box, { columns, selected, onChange, tags = true, pickable = c => c.kind === 'numeric' }) {
   box.innerHTML = '';
-  (state.dataset?.columns || []).forEach(c => {
+  box.classList.add('col-pick');
+  const names = columns.map(c => c.name);
+  const known = new Set(names);
+  const sel = new Set(selected.filter(n => known.has(n)));
+  let shown = names.map((_, i) => i);
+  let drawn = 0;
+  let anchor = null;                // position in `shown` of the last row ticked
+  let shift = false;
+
+  const list = document.createElement('div');
+  list.className = 'checklist';
+  list.title = t('pick.shift');
+  const tools = document.createElement('div');
+  tools.className = 'pick-tools';
+  tools.innerHTML = '<input type="search" class="pick-filter" spellcheck="false"><button type="button" class="btn small pick-all"></button><button type="button" class="btn small pick-none"></button><span class="pick-count"></span>';
+  const filter = tools.querySelector('.pick-filter');
+  filter.placeholder = t('pick.filter');
+  filter.title = t('pick.filter_help');
+  tools.querySelector('.pick-all').textContent = t('pick.all');
+  tools.querySelector('.pick-all').title = t('pick.all_help');
+  tools.querySelector('.pick-none').textContent = t('pick.none');
+  const count = tools.querySelector('.pick-count');
+  if (names.length >= PICK_TOOLS_FROM) box.append(tools);
+  box.append(list);
+
+  const row = k => {
+    const c = columns[shown[k]];
     const lab = document.createElement('label');
     const cb = document.createElement('input');
     cb.type = 'checkbox';
     cb.value = c.name;
-    cb.checked = selected.includes(c.name);
-    cb.onchange = () => {
-      const list = $$('input', box).filter(i => i.checked).map(i => i.value);
+    cb.dataset.k = k;
+    cb.checked = sel.has(c.name);
+    const name = document.createElement('span');
+    name.textContent = c.name;
+    lab.append(cb, name);
+    if (tags) {
+      const tag = document.createElement('span');
+      tag.className = 'kind-tag';
+      tag.textContent = KIND_TAG[c.kind] || c.kind;
+      lab.append(tag);
+    }
+    return lab;
+  };
+  const more = () => {
+    const page = document.createDocumentFragment();
+    const end = Math.min(shown.length, drawn + PICK_PAGE);
+    for (let k = drawn; k < end; k++) page.append(row(k));
+    drawn = end;
+    list.append(page);
+  };
+  const redraw = () => {
+    list.innerHTML = '';
+    drawn = 0;
+    anchor = null;
+    if (!shown.length && names.length) list.innerHTML = `<p class="small muted">${t('pick.nomatch')}</p>`;
+    more();
+  };
+  const showCount = () => {
+    let n = 0;
+    names.forEach(x => { if (sel.has(x)) n++; });
+    count.textContent = t('pick.count', { n: n.toLocaleString(LOCALE()), total: names.length.toLocaleString(LOCALE()) }) +
+      (shown.length < names.length ? ` · ${t('pick.shown', { n: shown.length.toLocaleString(LOCALE()) })}` : '');
+  };
+  const tickDrawn = () => $$('input', list).forEach(i => { i.checked = sel.has(i.value); });
+  const changed = () => { showCount(); onChange(names.filter(n => sel.has(n))); };
+
+  list.addEventListener('scroll', () => {
+    if (drawn < shown.length && list.scrollTop + list.clientHeight > list.scrollHeight - 300) more();
+  });
+  list.addEventListener('pointerdown', e => { shift = e.shiftKey; }, true);
+  list.addEventListener('keydown', e => { shift = e.shiftKey; }, true);
+  list.addEventListener('change', e => {
+    const k = Number(e.target.dataset.k);
+    const on = e.target.checked;
+    const [lo, hi] = shift && anchor !== null ? [Math.min(anchor, k), Math.max(anchor, k)] : [k, k];
+    for (let j = lo; j <= hi; j++) on ? sel.add(names[shown[j]]) : sel.delete(names[shown[j]]);
+    if (hi > lo) tickDrawn();
+    anchor = k;
+    shift = false;
+    changed();
+  });
+  tools.querySelector('.pick-all').onclick = () => {
+    shown.forEach(i => { if (pickable(columns[i])) sel.add(names[i]); });
+    tickDrawn();
+    changed();
+  };
+  tools.querySelector('.pick-none').onclick = () => {
+    shown.forEach(i => sel.delete(names[i]));
+    tickDrawn();
+    changed();
+  };
+  let timer = null;
+  filter.oninput = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      shown = matchColumns(names, filter.value);
+      redraw();
+      showCount();
+    }, 120);
+  };
+
+  redraw();
+  showCount();
+  return {
+    get: () => names.filter(n => sel.has(n)),
+    set(list) { sel.clear(); list.forEach(n => { if (known.has(n)) sel.add(n); }); tickDrawn(); showCount(); },
+  };
+}
+
+// Positions of the columns that match a filter: text in the name, or a range "a-b" (also a..b, a:b)
+// of numeric names, or "#a-b" of positions counted from 1.
+function matchColumns(names, query) {
+  const q = query.trim();
+  const all = names.map((_, i) => i);
+  if (!q) return all;
+  const low = q.toLocaleLowerCase();
+  const text = i => names[i].toLocaleLowerCase().includes(low);
+  const m = q.match(/^(#)?\s*(-?\d+(?:[.,]\d+)?)\s*(?:\.\.|[-–:])\s*(-?\d+(?:[.,]\d+)?)$/);
+  if (!m) return all.filter(text);
+  const [a, b] = [m[2], m[3]].map(v => Number(v.replace(',', '.')));
+  const [lo, hi] = [Math.min(a, b), Math.max(a, b)];
+  const inRange = m[1]
+    ? i => i + 1 >= lo && i + 1 <= hi
+    : i => { const s = names[i].trim(); const v = Number(s.replace(',', '.')); return s !== '' && Number.isFinite(v) && v >= lo && v <= hi; };
+  return all.filter(i => inRange(i) || text(i));
+}
+
+function buildChecklist(box, selected, key) {
+  box.picker = columnPicker(box, {
+    columns: state.dataset?.columns || [],
+    selected,
+    pickable: c => c.kind === 'numeric' && c.name !== state.spec.x,
+    onChange: list => {
       state.spec[key] = list;
       buildSeries();
       refreshRecommend();
       scheduleRender(0);
-    };
-    const name = document.createElement('span');
-    name.textContent = c.name;
-    const tag = document.createElement('span');
-    tag.className = 'kind-tag';
-    tag.textContent = KIND_TAG[c.kind] || c.kind;
-    lab.append(cb, name, tag);
-    box.append(lab);
+    },
   });
 }
 
@@ -530,11 +665,11 @@ function buildMapping(rebuildLists = true) {
       scheduleRender(0);
     };
   });
-  if (rebuildLists || !$('#mapY').children.length) {
+  if (rebuildLists || !$('#mapY').picker) {
     buildChecklist($('#mapY'), s.y, 'y');
     buildChecklist($('#mapY2'), s.y2, 'y2');
   } else {
-    $$('#mapY input').forEach(i => { i.checked = s.y.includes(i.value); });
+    $('#mapY').picker.set(s.y);
   }
 }
 
@@ -565,7 +700,8 @@ function buildOverlays() {
     row.className = 'overlay-row' + (o.hidden ? ' hidden-layer' : '');
     row.dataset.id = o.id;
     row.innerHTML = `<div class="src"></div><input type="color"><input type="text"><button class="reset" type="button">✕</button>
-      <div class="opts"><select class="ls"></select><label class="check"><input type="checkbox" class="band"><span></span></label>
+      <div class="opts"><select class="ls"></select><div class="mk-row"><select class="mk"></select><input type="number" class="ms" step="0.5" min="0"></div>
+      <label class="check"><input type="checkbox" class="band"><span></span></label>
       <label class="check"><input type="checkbox" class="show"><span></span></label></div>`;
     row.querySelector('.src').textContent = o.source_name || '';
     const color = row.querySelector('input[type=color]');
@@ -575,6 +711,13 @@ function buildOverlays() {
     label.value = o.label || '';
     const ls = row.querySelector('.ls');
     fillSelect(ls, [...LINESTYLES.map(v => [v, t('ls.' + v)]), ['none', t('ov.markers')]], o.style.linestyle || '-');
+    // The layer's own markers (e.g. peak markers): shape and size, independent of the series' markers.
+    const mk = row.querySelector('.mk');
+    fillSelect(mk, MARKERS.map(v => [v, `${t('ov.marker')}: ${t('mk.' + v)}`]), o.style.marker || '');
+    const ms = row.querySelector('.ms');
+    ms.value = o.style.markersize ?? '';
+    ms.placeholder = 'auto';
+    ms.title = t('ov.marker_size');
     const band = row.querySelector('.band');
     band.checked = o.band !== false && !!(o.lo && o.hi);
     band.disabled = !(o.lo && o.hi);
@@ -584,7 +727,20 @@ function buildOverlays() {
     show.nextElementSibling.textContent = t('ov.visible');
     color.oninput = () => { o.style.color = color.value; scheduleRender(250); };
     label.oninput = () => { o.label = label.value; scheduleRender(400); };
-    ls.onchange = () => { o.style.linestyle = ls.value; if (ls.value === 'none' && !o.style.marker) o.style.marker = 'o'; scheduleRender(0); };
+    ls.onchange = () => {
+      o.style.linestyle = ls.value;
+      if (ls.value === 'none' && !o.style.marker) { o.style.marker = 'o'; mk.value = 'o'; }   // something must show
+      scheduleRender(0);
+    };
+    mk.onchange = () => {
+      o.style.marker = mk.value || null;
+      if (!mk.value && o.style.linestyle === 'none') { o.style.linestyle = '-'; ls.value = '-'; }
+      scheduleRender(0);
+    };
+    ms.oninput = () => {
+      if (ms.value === '' || !(Number(ms.value) >= 0)) delete o.style.markersize; else o.style.markersize = Number(ms.value);
+      scheduleRender(300);
+    };
     band.onchange = () => { o.band = band.checked; scheduleRender(0); };
     show.onchange = () => { o.hidden = !show.checked; row.classList.toggle('hidden-layer', o.hidden); scheduleRender(0); };
     const rm = row.querySelector('.reset');
@@ -646,6 +802,9 @@ function buildSeries() {
   buildSeriesRows();
 }
 
+// One row per series, as many as the figure reports colours for (plotting.ColorLog.MAX_SERIES).
+const MAX_SERIES_ROWS = 200;
+
 function buildSeriesRows() {
   const box = $('#seriesList');
   box.innerHTML = '';
@@ -669,7 +828,7 @@ function buildSeriesRows() {
     return;
   }
   const pal = paletteColors(s.style.palette);
-  rows.forEach(({ key: col, title, color: real }, i) => {
+  rows.slice(0, MAX_SERIES_ROWS).forEach(({ key: col, title, color: real }, i) => {
     const over = s.series[col] || {};
     const row = document.createElement('div');
     row.className = 'series';
@@ -708,6 +867,12 @@ function buildSeriesRows() {
     row.querySelector('.reset').onclick = () => { delete s.series[col]; buildSeriesRows(); scheduleRender(0); };
     box.append(row);
   });
+  if (rows.length > MAX_SERIES_ROWS) {
+    const p = document.createElement('p');
+    p.className = 'small muted';
+    p.textContent = t('series.more', { n: (rows.length - MAX_SERIES_ROWS).toLocaleString(LOCALE()) });
+    box.append(p);
+  }
 }
 
 // ------------------------------------------------------------------ recommendations & hints
@@ -785,6 +950,131 @@ function specForServer() {
   return s;
 }
 
+// ------------------------------------------------------------------ points clicked on the figure
+// The server says where each set of axes lies in the image (X-Axes), so a click becomes data x, y.
+// An analysis field (e.g. baseline anchor points) starts a session with startPick and gets each point.
+const Pick = { session: null };
+
+function figureAxes(header) {
+  try { return JSON.parse(decodeURIComponent(header || '[]')).filter(g => [g.xscale, g.yscale].every(v => v === 'linear' || v === 'log')); }
+  catch (e) { return []; }
+}
+
+// Position along one axis: fraction f of the image → data value (linear or log axis), and back.
+const axisValue = (f, lo, hi, lim, scale) => {
+  const u = (f - lo) / (hi - lo);
+  if (scale === 'log') return 10 ** (Math.log10(lim[0]) + u * (Math.log10(lim[1]) - Math.log10(lim[0])));
+  return lim[0] + u * (lim[1] - lim[0]);
+};
+const axisFraction = (v, lo, hi, lim, scale) => {
+  const t = scale === 'log' ? (Math.log10(v) - Math.log10(lim[0])) / (Math.log10(lim[1]) - Math.log10(lim[0]))
+    : (v - lim[0]) / (lim[1] - lim[0]);
+  return lo + t * (hi - lo);
+};
+
+// Data coordinates under a point of the screen, or null outside the axes.
+function figureToData(clientX, clientY) {
+  const r = $('#figure').getBoundingClientRect();
+  if (!r.width || !r.height) return null;
+  const fx = (clientX - r.left) / r.width, fy = 1 - (clientY - r.top) / r.height;
+  const g = (state.axesGeom || []).find(a => fx >= a.box[0] && fx <= a.box[2] && fy >= a.box[1] && fy <= a.box[3]);
+  if (!g) return null;
+  return { x: axisValue(fx, g.box[0], g.box[2], g.xlim, g.xscale), y: axisValue(fy, g.box[1], g.box[3], g.ylim, g.yscale), g };
+}
+
+// A coordinate written with the precision the axis can show (≈ 1/2000 of its span).
+function axisText(v, lim, scale) {
+  if (scale === 'log' || !Number.isFinite(v)) return String(+v.toPrecision(4));
+  const step = Math.abs(lim[1] - lim[0]) / 2000 || 1;
+  return String(+v.toFixed(Math.min(12, Math.max(0, Math.ceil(-Math.log10(step))))));
+}
+
+function startPick(session) {
+  stopPick();
+  if (state.tab !== 'figure') setTab('figure');
+  if (!(state.axesGeom || []).length) { toast(t('pick.unavailable'), true); return false; }
+  Pick.session = session;
+  const box = $('#figureBox');
+  box.classList.add('picking');
+  const hint = document.createElement('div');
+  hint.className = 'pick-hint';
+  hint.id = 'pickHint';
+  hint.textContent = t('pick.hint');
+  box.append(hint);
+  drawPickMarks();
+  $('#stage').scrollIntoView({ block: 'nearest', behavior: 'smooth' });   // narrow screens: the figure is above
+  return true;
+}
+
+function stopPick() {
+  const s = Pick.session;
+  Pick.session = null;
+  $('#figureBox').classList.remove('picking');
+  ['#pickHint', '#pickLayer', '#pickReadout'].forEach(id => { const el = $(id); if (el) el.remove(); });
+  if (s && s.onStop) s.onStop();
+}
+
+// The session's points over the image: a dot where the height is given, a vertical line where the
+// height will be read from the signal.
+function drawPickMarks() {
+  const old = $('#pickLayer');
+  if (old) old.remove();
+  if (!Pick.session || !(state.axesGeom || []).length) return;
+  const box = $('#figureBox');
+  const img = $('#figure').getBoundingClientRect();
+  const outer = box.getBoundingClientRect();
+  const g = state.axesGeom[0];
+  const layer = document.createElement('div');
+  layer.className = 'pick-layer';
+  layer.id = 'pickLayer';
+  const left = v => img.left - outer.left + img.width * axisFraction(v, g.box[0], g.box[2], g.xlim, g.xscale);
+  const top = v => img.top - outer.top + img.height * (1 - axisFraction(v, g.box[1], g.box[3], g.ylim, g.yscale));
+  (Pick.session.marks() || []).forEach(({ x, y }) => {
+    const m = document.createElement('div');
+    if (y === null || y === undefined) {
+      m.className = 'pick-vline';
+      m.style.left = left(x) + 'px';
+      m.style.top = top(g.ylim[1]) + 'px';
+      m.style.height = (top(g.ylim[0]) - top(g.ylim[1])) + 'px';
+    } else {
+      m.className = 'pick-dot';
+      m.style.left = left(x) + 'px';
+      m.style.top = top(y) + 'px';
+    }
+    layer.append(m);
+  });
+  box.append(layer);
+}
+
+function initPick() {
+  const img = $('#figure');
+  img.addEventListener('click', e => {
+    if (!Pick.session) return;
+    const p = figureToData(e.clientX, e.clientY);
+    if (!p) { toast(t('pick.outside')); return; }
+    Pick.session.onPoint({ x: axisText(p.x, p.g.xlim, p.g.xscale), y: axisText(p.y, p.g.ylim, p.g.yscale) });
+    drawPickMarks();
+  });
+  img.addEventListener('mousemove', e => {
+    if (!Pick.session) return;
+    let tip = $('#pickReadout');
+    const p = figureToData(e.clientX, e.clientY);
+    if (!p) { if (tip) tip.remove(); return; }
+    if (!tip) {
+      tip = document.createElement('div');
+      tip.className = 'pick-readout';
+      tip.id = 'pickReadout';
+      $('#figureBox').append(tip);
+    }
+    const outer = $('#figureBox').getBoundingClientRect();
+    tip.textContent = `x ${axisText(p.x, p.g.xlim, p.g.xscale)}   y ${axisText(p.y, p.g.ylim, p.g.yscale)}`;
+    tip.style.left = (e.clientX - outer.left + 14) + 'px';
+    tip.style.top = (e.clientY - outer.top + 14) + 'px';
+  });
+  img.addEventListener('mouseleave', () => { const tip = $('#pickReadout'); if (tip) tip.remove(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && Pick.session) stopPick(); });
+}
+
 function scheduleRender(delay = 200) {
   clearTimeout(state.renderTimer);
   state.renderTimer = setTimeout(renderNow, delay);
@@ -808,8 +1098,9 @@ async function renderNow() {
     const blob = await res.blob();
     if (seq !== state.renderSeq) return;
     seriesDrawn(res.headers.get('X-Series'));
+    state.axesGeom = figureAxes(res.headers.get('X-Axes'));
     const url = URL.createObjectURL(blob);
-    img.onload = () => URL.revokeObjectURL(url);
+    img.onload = () => { URL.revokeObjectURL(url); drawPickMarks(); };
     img.src = url;
     img.style.width = Math.round(w * fit) + 'px';
     img.style.height = Math.round(h * fit) + 'px';
@@ -823,7 +1114,7 @@ async function renderNow() {
     } else if (e.code === 'dataset_gone') {
       await reopenSource();
     } else {
-      $('#errorBox').textContent = e.message;
+      $('#errorBox').textContent = specMessage(e);
       $('#errorBox').hidden = false;
     }
   } finally {
@@ -1121,7 +1412,8 @@ function buildTable() {
   const table = document.createElement('table');
   const head = document.createElement('tr');
   head.append(document.createElement('th'));
-  ds.columns.forEach(c => {
+  const width = ds.preview_cols ?? ds.columns.length;      // a wide table: its first columns
+  ds.columns.slice(0, width).forEach(c => {
     const th = document.createElement('th');
     th.textContent = c.name;
     const sm = document.createElement('small');
@@ -1149,8 +1441,9 @@ function buildTable() {
   box.innerHTML = '';
   const note = document.createElement('div');
   note.className = 'table-note';
-  note.textContent = `${t('data.loaded', { rows: ds.rows.toLocaleString(LOCALE()), cols: ds.columns.length })}` +
-    (ds.rows > ds.preview.length ? ` — 1–${ds.preview.length}` : '');
+  note.textContent = `${t('data.loaded', { rows: ds.rows.toLocaleString(LOCALE()), cols: ds.columns.length.toLocaleString(LOCALE()) })}` +
+    (ds.rows > ds.preview.length ? ` — 1–${ds.preview.length}` : '') +
+    (width < ds.columns.length ? ` · ${t('data.first_cols', { n: width })}` : '');
   box.append(note, table);
 }
 
@@ -1552,6 +1845,7 @@ function bindApp() {
   $$('.tab[data-tab]').forEach(b => { b.onclick = () => (b.dataset.tab === 'figure' ? showView(null) : setTab(b.dataset.tab)); });
   let resizeTimer = null;
   window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => scheduleRender(0), 250); });
+  initPick();
   // drag & drop anywhere
   let depth = 0;
   const veil = $('#dropVeil');

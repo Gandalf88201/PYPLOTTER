@@ -102,7 +102,7 @@ h3 { font-size: 14px; margin: 16px 0 6px; }
 .chip:hover { border-color: var(--accent); }
 .field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; min-width: 0; }
 .field > label { font-size: 12px; color: var(--muted); font-weight: 550; }
-select, input[type="text"], input[type="number"] {
+select, input[type="text"], input[type="number"], input[type="search"] {
   width: 100%; min-width: 0; height: 32px; padding: 4px 8px; border: 1px solid var(--border-strong);
   border-radius: 7px; background: var(--panel); outline: none;
 }
@@ -149,6 +149,11 @@ details.sub > summary { cursor: pointer; font-size: 12.5px; color: var(--muted);
 .checklist { display: flex; flex-direction: column; gap: 2px; max-height: 190px; overflow-y: auto; border: 1px solid var(--border); border-radius: 7px; padding: 4px; }
 .checklist label { display: flex; align-items: center; gap: 7px; padding: 3px 5px; border-radius: 5px; cursor: pointer; font-size: 13px; }
 .checklist label:hover { background: var(--panel-2); }
+.checklist label { user-select: none; -webkit-user-select: none; }
+.pick-tools { display: flex; align-items: center; gap: 4px; margin-bottom: 4px; flex-wrap: wrap; }
+.pick-tools .pick-filter { flex: 1 1 100%; height: 28px; padding: 3px 7px; font-size: 12px; }
+.pick-tools .btn.small { padding: 3px 9px; }
+.pick-tools .pick-count { margin-left: auto; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; }
 .checklist input { accent-color: var(--accent); }
 .checklist .kind-tag, .kind-tag { font-size: 10px; font-family: var(--mono); color: var(--muted); margin-left: auto; }
 .field.disabled { opacity: .4; pointer-events: none; }
@@ -324,6 +329,7 @@ textarea.code { width: 100%; height: min(60vh, 560px); font: 12.5px/1.5 var(--mo
 .overlay-row .src { grid-column: 1 / -1; font-size: 11.5px; color: var(--muted); }
 .overlay-row .opts { grid-column: 1 / -1; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .overlay-row .opts select { flex: 1 1 100%; }
+.overlay-row .opts .mk-row { flex: 1 1 100%; display: grid; grid-template-columns: 1fr 64px; gap: 6px; }
 .overlay-row .opts .check { margin: 0; font-size: 12.5px; }
 .overlay-row.hidden-layer { opacity: .55; }
 
@@ -347,3 +353,14 @@ textarea.code { width: 100%; height: min(60vh, 560px); font: 12.5px/1.5 var(--mo
 .combine-file .checklist { max-height: 110px; }
 .combine-file.off .body { display: none; }
 .banner.warn { background: var(--danger-soft); color: var(--danger); }
+
+/* points clicked on the figure (e.g. baseline anchor points) */
+.figure-box.picking img { cursor: crosshair; }
+.pick-layer { position: absolute; inset: 0; pointer-events: none; }
+.pick-dot { position: absolute; width: 9px; height: 9px; margin: -4.5px 0 0 -4.5px; border-radius: 50%; background: var(--accent); border: 1.5px solid #fff; box-shadow: 0 0 0 1px var(--accent); }
+.pick-vline { position: absolute; width: 0; margin-left: -1px; border-left: 2px dashed var(--accent); opacity: .85; }
+.pick-readout { position: absolute; pointer-events: none; font: 11px var(--mono); white-space: pre; background: var(--panel); color: var(--text); border: 1px solid var(--border-strong); border-radius: 5px; padding: 2px 6px; box-shadow: var(--shadow); }
+.pick-hint { position: absolute; top: 6px; left: 50%; transform: translateX(-50%); z-index: 2; background: var(--accent); color: var(--on-accent); padding: 5px 12px; border-radius: 7px; font-size: 12.5px; box-shadow: var(--shadow); white-space: nowrap; }
+.points-field textarea { width: 100%; min-height: 64px; resize: vertical; font: 12px var(--mono); padding: 5px 8px; border: 1px solid var(--border-strong); border-radius: 7px; background: var(--panel); color: var(--text); outline: none; }
+.points-field textarea:focus { border-color: var(--accent); }
+.points-field .mini { margin-top: 4px; }

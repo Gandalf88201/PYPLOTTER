@@ -21,7 +21,7 @@ import pandas as pd
 BUILTIN_DIR = Path(__file__).resolve().parent / 'analyses'
 USER_DIR = Path(os.environ.get('PYPLOTTER_PLUGINS') or
                 Path(os.environ.get('PYPLOTTER_HOME') or Path.home() / '.pyplotter') / 'plugins')
-PARAM_TYPES = {'column', 'columns', 'int', 'float', 'bool', 'choice', 'text'}
+PARAM_TYPES = {'column', 'columns', 'int', 'float', 'bool', 'choice', 'text', 'points'}
 CATEGORIES = ['recipe', 'fit', 'timeseries', 'stats', 'signal', 'custom']
 MAX_TABLE_ROWS = 5000
 
@@ -94,6 +94,7 @@ class Result:
 
         Use the same x units as the analysed data (e.g. the fitted curve on a fine grid with its
         95 % confidence band). style: {'color', 'linestyle', 'linewidth', 'marker', 'band_alpha'}.
+        style legend=False draws the layer without a legend entry (e.g. one curve per peak).
         on_figure=False: the layer belongs only to this result's own plot (its x is not the data's x,
         e.g. a curve over a histogram computed by the analysis).
         text: a column of labels written above each point (below for style marker '^'), e.g. peak positions.
@@ -167,6 +168,15 @@ class Context:
         if s.notna().sum() == 0:
             raise PluginError(f'Column "{column}" has no numeric values.')
         return s.dropna() if dropna else s
+
+    def baseline(self, x, y, p):
+        """The baseline chosen in p (parameters from pyplotter.baselines.params), or None if p['baseline'] is
+        not one of its methods. Returns an object with .values (one per x), .label, .refs, .anchors, .below."""
+        from . import baselines
+        try:
+            return baselines.estimate(x, y, p, self.tr)
+        except ValueError as exc:
+            raise PluginError(str(exc))
 
     def xy(self, df, x, y):
         """Paired numeric arrays (x may be None = row number), NaN rows removed."""
@@ -399,6 +409,32 @@ def roles(spec, df):
     return out
 
 
+def parse_points(text, label='points'):
+    """[(x, y or None), …] from text with one point per line (or separated by ;): "x" or "x y".
+
+    A decimal comma is accepted ("1003,5"); a comma between numbers is not a separator, so that
+    "100, 200" is refused instead of being read as one point.
+    """
+    if isinstance(text, (list, tuple)):
+        return [(float(q[0]), None if len(q) < 2 or q[1] is None else float(q[1])) for q in text]
+    out = []
+    for part in re.split(r'[;\n]+', str(text or '')):
+        tokens = part.split()
+        if not tokens:
+            continue
+        try:
+            nums = [float(tok.replace(',', '.')) if tok.count(',') == 1 and '.' not in tok and not tok.endswith(',')
+                    else float(tok) for tok in tokens]
+        except ValueError:
+            raise PluginError(f'“{label}”: “{part.strip()}” is not a point. Write x, or x and y separated by a '
+                              f'space, one point per line (or separated by ;).')
+        if len(nums) > 2 or not all(math.isfinite(n) for n in nums):
+            raise PluginError(f'“{label}”: “{part.strip()}” is not a point. Write x, or x and y separated by a '
+                              f'space, one point per line (or separated by ;).')
+        out.append((nums[0], nums[1] if len(nums) == 2 else None))
+    return out
+
+
 def coerce_params(params, given, df, role_values=None):
     role_values = role_values or {}
     out = {}
@@ -425,6 +461,9 @@ def coerce_params(params, given, df, role_values=None):
                 raise PluginError(f'Choose at least one column for “{prm["label"]["en"]}”.')
             if prm.get('min_count') and len(v) < prm['min_count']:
                 raise PluginError(f'Choose at least {prm["min_count"]} columns for “{prm["label"]["en"]}”.')
+            if prm.get('max_count') and len(v) > prm['max_count']:
+                raise PluginError(f'Choose at most {prm["max_count"]:,} columns for “{prm["label"]["en"]}” '
+                                  f'({len(v):,} chosen).')
         elif typ in ('int', 'float'):
             if v in (None, ''):
                 if optional:
@@ -445,6 +484,8 @@ def coerce_params(params, given, df, role_values=None):
             allowed = [c['value'] for c in prm['choices']]
             if v not in allowed:
                 v = allowed[0] if allowed else None
+        elif typ == 'points':
+            v = parse_points(v, prm['label']['en'])
         else:
             v = '' if v is None else str(v)
         out[pid] = v

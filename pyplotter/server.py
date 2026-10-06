@@ -29,6 +29,7 @@ MAX_JSON = 32 * 1024 * 1024
 MAX_DATASETS = 200                # kept in memory, least recently used dropped first …
 MAX_DATASET_BYTES = 2 * 1024 ** 3  # … also when together they take more than this
 PREVIEW_ROWS = 200
+PREVIEW_COLS = 100      # the table shows the first columns: a wide table would be millions of cells
 CHUNK = 1 << 20
 MIME = {'.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
         '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.json': 'application/json'}
@@ -215,11 +216,12 @@ class App:
             while len(self.datasets) > 1 and (len(self.datasets) > MAX_DATASETS or total > MAX_DATASET_BYTES):
                 _, old = self.datasets.popitem(last=False)
                 total -= old.get('bytes', 0)
-        head = df.head(PREVIEW_ROWS)
+        head = df.iloc[:PREVIEW_ROWS, :PREVIEW_COLS]
         return {'dataset_id': did, 'name': name, 'rows': int(len(df)), 'columns': cols, 'mapping': mapping,
                 'options': {k: v for k, v in used.items() if k != 'names'}, 'source': source,
                 'recommend': smart.recommend(cols, mapping, len(df)),
-                'preview': [[json_safe(v) for v in row] for row in head.itertuples(index=False, name=None)]}
+                'preview': [[json_safe(v) for v in row] for row in head.itertuples(index=False, name=None)],
+                'preview_cols': int(head.shape[1])}
 
     def dataset(self, did):
         with self.lock:
@@ -396,7 +398,7 @@ class App:
                 return (plotting.render(ds['df'], spec, fmt, dpi, overlays, extras, info=info),
                         catalog.EXPORT_FORMATS[fmt]['mime'])
         except plotting.SpecError as exc:
-            raise ApiError(str(exc), 422, 'spec')
+            raise ApiError(str(exc), 422, 'spec', key=exc.key, values=exc.values)
         except (MissingModules, ApiError):
             raise
         except ImportError as exc:
@@ -556,7 +558,8 @@ def make_handler(app, port):
                     data, mime = app.render(body, info=info)
                     # The colour each series really got, for the Series panel (JSON, URL-encoded).
                     series = quote(json.dumps(info.get('series', []), ensure_ascii=False, default=json_safe))
-                    return self._send(200, data, mime, {'X-Series': series})
+                    axes = quote(json.dumps(info.get('axes', []), default=json_safe))
+                    return self._send(200, data, mime, {'X-Series': series, 'X-Axes': axes})
                 if path == '/api/export':
                     fmt = str(body.get('format') or 'png').lower()
                     if fmt not in catalog.EXPORT_FORMATS:

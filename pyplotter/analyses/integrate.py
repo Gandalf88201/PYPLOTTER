@@ -2,6 +2,8 @@
 import numpy as np
 import pandas as pd
 
+from pyplotter import baselines
+
 PLUGIN = {
     'id': 'integrate',
     'order': 40,
@@ -15,8 +17,9 @@ PLUGIN = {
         {'id': 'y', 'type': 'column', 'default': 'y', 'label': {'en': 'Y', 'it': 'Y'}},
         {'id': 'xmin', 'type': 'float', 'optional': True, 'label': {'en': 'From x =', 'it': 'Da x ='}},
         {'id': 'xmax', 'type': 'float', 'optional': True, 'label': {'en': 'To x =', 'it': 'A x ='}},
-        {'id': 'baseline', 'type': 'bool', 'default': False,
-         'label': {'en': 'Subtract the straight baseline between the ends', 'it': 'Sottrai la retta di base tra gli estremi'}},
+        *baselines.params(extra=[('none', {'en': 'none (area down to y = 0)', 'it': 'nessuna (area fino a y = 0)'}),
+                                 ('ends', {'en': 'straight line between the ends of the range', 'it': 'retta tra gli estremi dell’intervallo'})],
+                          default='none'),
     ],
     'references': ['Virtanen, P. et al. SciPy 1.0. Nature Methods 17, 261–272 (2020). doi:10.1038/s41592-019-0686-2'],
 }
@@ -27,6 +30,9 @@ def run(df, p, ctx):
     x, y = ctx.xy(df, p['x'], p['y'])
     order = np.argsort(x, kind='stable')
     x, y = x[order], y[order]
+    b = ctx.baseline(x, y, p)                      # on the whole signal, then the range
+    if b is not None:
+        y = y - b.values
     keep = np.ones(x.size, bool)
     if p['xmin'] is not None:
         keep &= x >= p['xmin']
@@ -35,10 +41,13 @@ def run(df, p, ctx):
     x, y = x[keep], y[keep]
     if x.size < 2:
         raise ValueError(ctx.tr('Fewer than two points in the range.', 'Meno di due punti nell’intervallo.'))
-    if p['baseline']:
+    if p['baseline'] == 'ends':
         y = y - np.interp(x, [x[0], x[-1]], [y[0], y[-1]])
     r = ctx.result()
     r.value(ctx.tr('range', 'intervallo'), f'{x[0]:.6g} … {x[-1]:.6g}')
+    if b is not None:
+        r.value(ctx.tr('baseline', 'linea di base'), b.label)
+        r.cite(*b.refs)
     r.value(ctx.tr('area (trapezoid)', 'area (trapezi)'), integrate.trapezoid(y, x))
     if x.size >= 3:
         r.value(ctx.tr('area (Simpson)', 'area (Simpson)'), integrate.simpson(y, x=x))

@@ -71,8 +71,8 @@ printed in the terminal window. Options:
     Mann–Whitney, Wilcoxon, ANOVA, Alexander–Govern, Kruskal–Wallis, Tukey HSD, effect sizes),
     correlation with p-values, linear models and ANOVA with R-style formulas (statsmodels),
     distribution fitting ranked by AIC;
-  - *signal* — Savitzky–Golay smoothing and derivatives, power spectrum, peak finding (FWHM, area),
-    integrals.
+  - *signal* — baseline, Savitzky–Golay smoothing and derivatives, power spectrum, peak finding
+    (height, FWHM and area above the baseline), integrals.
   Results are **drawn on a copy of the original figure**, in its own tab next to *Figure* (close it
   with ×; the original is never changed), with their error bands (95 % confidence or prediction band
   of fits and regressions, mean ± SEM of block averaging, smoothed curves, peak markers) — a fit
@@ -84,6 +84,19 @@ printed in the terminal window. Options:
   in the same graph, one colour and legend entry per file; *Combine files* chooses which files, columns
   and error columns to include, or switches to **one panel per file** (shared axes, panel letters
   (a), (b)…, file names as titles), ready for multi-panel journal figures.
+- **Wide tables** (tens of thousands of columns): every list of columns has *All* / *None*, a filter that
+  also takes a range of numeric names (`19600-19840`) or of positions (`#1-500`), and Shift+click to tick
+  a whole block. A heat map draws all of them (anti-aliased, so no column is skipped); a correlation
+  matrix takes up to 2,000 columns and a plot with one line, box… per column up to 2,000 series —
+  beyond that the figure has more cells than pixels, and PyPlotter says so. The data table shows the
+  first 100 columns; an automatic legend is left out when it does not fit in the axes.
+- **Baseline first, then the analysis** (spectra, chromatograms, any signal with peaks): the *Baseline*
+  analysis takes anchor points you **click on the figure** (or type), joined by straight lines or a smooth
+  curve, or an automatic method — arPLS, asymmetric least squares, SNIP or rubber band. It draws the baseline
+  and the corrected signal and warns when the baseline is too high. *Peak finding*, *Peak fit* and *Integral*
+  then offer the same baseline already selected: heights, widths and areas are measured above it, each
+  peak's area runs between the minima that separate it from its neighbours, and the joint peak fit keeps
+  every peak inside its own region (a range of x can be chosen too).
 - **New** (top bar) starts a new analysis: closes data, figure, results and overlays, keeps your style.
 - **Your own analyses**: write plugins, or customise any built-in analysis, in the in-app editor;
   they live in `~/.pyplotter/plugins/` and survive updates. See [PLUGINS.md](PLUGINS.md).
@@ -171,6 +184,19 @@ con un solo pulsante e una barra di avanzamento. Tieni aperta la finestra del te
   stesso grafico, un colore e una voce di legenda per file; *Combina file* sceglie file, colonne ed errori
   da includere, oppure passa a **un pannello per file** (assi condivisi, lettere (a), (b)…, nomi dei file
   come titoli), pronto per le figure a più pannelli delle riviste.
+- **Tabelle larghe** (decine di migliaia di colonne): ogni elenco di colonne ha *Tutte* / *Nessuna*, un
+  filtro che accetta anche un intervallo di nomi numerici (`19600-19840`) o di posizioni (`#1-500`), e
+  Maiusc+clic per spuntare un intero blocco. La mappa di calore le disegna tutte (con anti-aliasing,
+  nessuna colonna saltata); la matrice di correlazione accetta fino a 2000 colonne e i grafici con una
+  linea, un box… per colonna fino a 2000 serie — oltre, la figura avrebbe più celle che pixel e PyPlotter
+  lo dice. La tabella dati mostra le prime 100 colonne; la legenda automatica si omette se non sta negli assi.
+- **Prima la linea di base, poi l’analisi** (spettri, cromatogrammi, ogni segnale con picchi): l’analisi
+  *Linea di base* usa punti di ancoraggio che **clicchi sulla figura** (o scrivi), uniti da segmenti o da
+  una curva liscia, oppure un metodo automatico — arPLS, minimi quadrati asimmetrici, SNIP o elastico.
+  Disegna la linea e il segnale corretto e avvisa se la linea è troppo alta. *Ricerca dei picchi*, *Fit dei
+  picchi* e *Integrale* propongono poi la stessa linea già selezionata: altezze, larghezze e aree sono
+  misurate sopra di essa, l’area di ogni picco va dai minimi che lo separano dai vicini, e il fit congiunto
+  tiene ogni picco nella sua regione (si può anche scegliere un intervallo di x).
 - **Nuovo** (in alto) inizia una nuova analisi: chiude dati, figura, risultati e sovrapposizioni, mantiene lo stile.
 - **Plugin personali**: scrivi le tue analisi o personalizza quelle incluse nell'editor dell'app; restano
   in `~/.pyplotter/plugins/` anche dopo gli aggiornamenti. Guida: [PLUGINS.md](PLUGINS.md).

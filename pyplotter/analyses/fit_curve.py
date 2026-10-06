@@ -65,6 +65,10 @@ PLUGIN = {
                   'it': 'Funzioni: exp log log10 sqrt sin cos tan arctan sinh cosh tanh abs erf; costanti pi, e.'}},
         {'id': 'p0', 'type': 'text', 'default': '',
          'label': {'en': 'Starting values (e.g. tau=10, c=0)', 'it': 'Valori iniziali (es. tau=10, c=0)'}},
+        {'id': 'bounds', 'type': 'text', 'default': '',
+         'label': {'en': 'Limits (e.g. a=0..inf, tau=1..100)', 'it': 'Limiti (es. a=0..inf, tau=1..100)'},
+         'help': {'en': 'Optional: each parameter stays between the two values (bounded least squares).',
+                  'it': 'Facoltativi: ogni parametro resta tra i due valori (minimi quadrati vincolati).'}},
         {'id': 'band', 'type': 'choice', 'default': 'confidence',
          'label': {'en': 'Error band of the curve', 'it': 'Banda d’errore della curva'},
          'choices': [{'value': 'confidence', 'label': {'en': '95% confidence (of the fitted curve)', 'it': 'confidenza 95% (della curva)'}},
@@ -197,6 +201,26 @@ def parse_p0(text, names, guess):
     return p0
 
 
+def parse_bounds(text, names):
+    """(lower, upper) arrays from 'a=0..inf, tau=1..100' (an empty side is unbounded), or None."""
+    lo, hi = np.full(len(names), -np.inf), np.full(len(names), np.inf)
+    given = False
+    for part in str(text or '').replace(';', ',').split(','):
+        if '=' not in part:
+            continue
+        k, v = (t.strip() for t in part.split('=', 1))
+        if k not in names or '..' not in v:
+            raise ValueError(f'Limits: write name=low..high for a parameter of the formula, e.g. {names[0]}=0..inf.')
+        a, b = (t.strip() for t in v.split('..', 1))
+        i = names.index(k)
+        lo[i] = float(a) if a else -np.inf
+        hi[i] = float(b) if b else np.inf
+        if not lo[i] < hi[i]:
+            raise ValueError(f'Limits of {k}: the low value must be below the high one.')
+        given = True
+    return (lo, hi) if given else None
+
+
 def curve_band(f, x, popt, pcov, tcrit, extra_var=0.0):
     """Half-width of the confidence band: t·sqrt(J·C·Jᵀ (+ extra variance)), J by central differences."""
     popt = np.asarray(popt, float)
@@ -285,8 +309,15 @@ def run(df, p, ctx):
         raise ValueError(ctx.tr(f'Too few points ({x.size}) for {len(names)} parameters.',
                                 f'Troppi pochi punti ({x.size}) per {len(names)} parametri.'))
     p0 = parse_p0(p['p0'], names, guess)
+    limits = parse_bounds(p.get('bounds'), names)
+    extra = {}
+    if limits is not None:                       # bounded fit (trust region reflective); start inside the limits
+        lo, hi = limits
+        span = np.where(np.isfinite(hi - lo), hi - lo, 1.0)
+        p0 = np.clip(p0, lo + 1e-9 * span, hi - 1e-9 * span)
+        extra['bounds'] = limits
     popt, pcov, info, msg, ier = optimize.curve_fit(f, x, y, p0=p0, sigma=sigma, absolute_sigma=sigma is not None,
-                                                     maxfev=20000, full_output=True)
+                                                     maxfev=20000, full_output=True, **extra)
     perr = np.sqrt(np.clip(np.diag(pcov), 0, None)) if np.all(np.isfinite(pcov)) else np.full(len(popt), np.nan)
     fit_y = f(x, *popt)
     resid = y - fit_y
@@ -319,6 +350,12 @@ def run(df, p, ctx):
                      'CI 95% low': val - tcrit * err, 'CI 95% high': val + tcrit * err,
                      ctx.tr('rel. error %', 'errore rel. %'): abs(err / val) * 100 if val else np.nan})
     r.table(ctx.tr('Fitted parameters', 'Parametri del fit'), rows)
+    if limits is not None:
+        at = [nm for nm, v, a, b in zip(names, popt, *limits)
+              if np.isclose(v, a, rtol=1e-6, atol=0) or np.isclose(v, b, rtol=1e-6, atol=0)]
+        if at:
+            r.text(ctx.tr(f'At a limit: {", ".join(at)}. There the limits decide the value; its error is not reliable.',
+                          f'Al limite: {", ".join(at)}. Lì il valore è deciso dai limiti; il suo errore non è affidabile.'))
     for name, val, err in zip(names, popt, perr):
         r.keep(name, float(val), float(err))         # e.g. r.get('mu'), r.error('mu') in a recipe
     r.value('N', n, key='n')
