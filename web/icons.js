@@ -4,6 +4,7 @@
   const S = 'fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"';
   const F = 'fill="currentColor"';
   const axes = `<path d="M3 3v18h18" ${S} opacity=".45"/>`;
+  const axes3 = `<path d="M7 16V3M7 16h14M7 16l-4 5" ${S} stroke-width="1.2" opacity=".4"/>`;   // 3D: x, z and depth
   window.KIND_ICONS = {
     line: `${axes}<path d="M5 16l4-6 4 3 6-8" ${S}/>`,
     scatter: `${axes}<g ${F}><circle cx="7" cy="15" r="1.4"/><circle cx="10" cy="11" r="1.4"/><circle cx="13" cy="13" r="1.4"/><circle cx="15" cy="8" r="1.4"/><circle cx="18" cy="6" r="1.4"/><circle cx="12" cy="16" r="1.4"/></g>`,
@@ -29,5 +30,8 @@
     hist2d: `${axes}<g ${F}><rect x="5" y="13" width="4" height="4" opacity=".4"/><rect x="9" y="9" width="4" height="4" opacity=".9"/><rect x="13" y="9" width="4" height="4" opacity=".5"/><rect x="9" y="13" width="4" height="4" opacity=".6"/><rect x="13" y="5" width="4" height="4" opacity=".3"/><rect x="17" y="5" width="3" height="4" opacity=".15"/></g>`,
     corr: `<g ${F}><rect x="3" y="3" width="5.5" height="5.5"/><rect x="9.25" y="9.25" width="5.5" height="5.5"/><rect x="15.5" y="15.5" width="5.5" height="5.5"/><rect x="9.25" y="3" width="5.5" height="5.5" opacity=".45"/><rect x="3" y="9.25" width="5.5" height="5.5" opacity=".45"/><rect x="15.5" y="3" width="5.5" height="5.5" opacity=".15"/><rect x="3" y="15.5" width="5.5" height="5.5" opacity=".15"/><rect x="15.5" y="9.25" width="5.5" height="5.5" opacity=".7"/><rect x="9.25" y="15.5" width="5.5" height="5.5" opacity=".7"/></g>`,
     pairplot: `<g ${S} stroke-width="1.2" opacity=".5"><rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="8" rx="1"/><rect x="3" y="13" width="8" height="8" rx="1"/><rect x="13" y="13" width="8" height="8" rx="1"/></g><g ${F}><rect x="4.5" y="7" width="1.6" height="3"/><rect x="6.2" y="5" width="1.6" height="5"/><rect x="7.9" y="6.5" width="1.6" height="3.5"/><rect x="14.5" y="17" width="1.6" height="3"/><rect x="16.2" y="15" width="1.6" height="5"/><rect x="17.9" y="16.5" width="1.6" height="3.5"/><circle cx="15" cy="9" r=".9"/><circle cx="17" cy="7" r=".9"/><circle cx="19" cy="5" r=".9"/><circle cx="5" cy="19" r=".9"/><circle cx="7" cy="17" r=".9"/><circle cx="9" cy="15" r=".9"/></g>`,
+    surface3d: `${axes3}<path d="M5 12c3-3 5 1 8-1.5s5-2.5 8-.5l-3 6c-3-2-5-1-8 1s-5-1-8 1z" fill="currentColor" opacity=".25"/><path d="M5 12c3-3 5 1 8-1.5s5-2.5 8-.5l-3 6c-3-2-5-1-8 1s-5-1-8 1zM4 15c3-3 5 1 8-1.5s5-2.5 7.5-.5M9 11.3l-1.8 5.4M14 9.6l-2 5.7" ${S} stroke-width="1.2"/>`,
+    scatter3d: `${axes3}<g ${F}><circle cx="10" cy="12" r="1.6"/><circle cx="14" cy="8" r="1.3"/><circle cx="17" cy="11" r="1.1"/><circle cx="8" cy="7" r="1"/><circle cx="12" cy="15" r="1.8"/><circle cx="19" cy="6" r=".9"/></g>`,
+    waterfall: `${axes3}<path d="M5 19c2 0 2-5 3.5-5s1.5 4 3.5 4 1-2 3-2" ${S}/><path d="M8 15c2 0 2-6 3.5-6s1.5 5 3.5 5 1-2 3-2" ${S} opacity=".7"/><path d="M11 11c2 0 2-7 3.5-7s1.5 6 3.5 6 1-2 3-2" ${S} opacity=".45"/>`,
   };
 })();

@@ -135,9 +135,12 @@ recipe does; the panel shows it above the form. See `pyplotter/analyses/recipe_*
 ### Modules and licences
 
 List every registry module your plugin needs in `requires`; PyPlotter offers to install the missing
-ones. To use a package that is not in the registry, add it to `pyplotter/registry.json` with its
-licence (open-source only, see THIRD_PARTY_NOTICES.md) and citation. Put the references of the
-methods you use in `references`.
+ones. A package that is not in the registry can be added by each user from *Modules › Your modules*
+(its licence is shown first); list its PyPI name in `requires` too: if it is missing, the analysis
+says to install it again there, and the reference the user wrote for it is added to the results.
+To ship a plugin that others can use without that step, add the package to `pyplotter/registry.json`
+with its licence (open-source only, see THIRD_PARTY_NOTICES.md) and citation. Put the references of
+the methods you use in `references`.
 
 ### Security
 
@@ -168,7 +171,8 @@ tracciare (`r.data(...)`), eventuali livelli da disegnare su una copia del grafi
 d'errore (`r.overlay(...)`) e i riferimenti da citare. Nota: una **copia personalizzata** di
 un'analisi inclusa non riceve gli aggiornamenti successivi di PyPlotter; disattivala per tornare
 alla versione aggiornata. Elenca in `requires` i moduli necessari (solo
-open source, con licenza e citazione nel registro). Lancia `ValueError('messaggio')` per errori che
+open source, con licenza e citazione nel registro); un pacchetto aggiunto da *Moduli › I tuoi moduli*
+si elenca col suo nome PyPI. Lancia `ValueError('messaggio')` per errori che
 l'utente deve correggere.
 
 **Ricette.** Una ricetta (categoria `'recipe'`, prima voce del menu *Ricette*) esegue più analisi in

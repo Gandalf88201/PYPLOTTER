@@ -237,7 +237,7 @@
       <div class="field"><label data-i18n="text.xlabel">X label</label><input type="text" data-path="text.xlabel" data-i18n-placeholder="text.auto"></div>
       <div class="field"><label data-i18n="text.ylabel">Y label</label><input type="text" data-path="text.ylabel" data-i18n-placeholder="text.auto"></div>
       <div class="field"><label data-i18n="text.y2label">Secondary Y label</label><input type="text" data-path="text.y2label" data-i18n-placeholder="text.auto"></div>
-      <div class="field"><label data-i18n="text.zlabel">Colour bar label</label><input type="text" data-path="text.zlabel" data-i18n-placeholder="text.auto"></div>
+      <div class="field"><label data-i18n="text.zlabel">Z / colour bar label</label><input type="text" data-path="text.zlabel" data-i18n-placeholder="text.auto"></div>
       <p class="tiny muted" data-i18n="text.mathhint">Math: $\alpha$, $10^{-3}$, $\mu$m, $H_2O$</p>
       <div class="field"><label data-i18n="text.font">Font</label><select data-path="text.font" id="fontSelect"></select></div>
       <div class="grid2">
@@ -262,6 +262,8 @@
         <div class="field"><label>Y max</label><input type="number" data-path="axes.ymax" data-type="nullable" placeholder="auto"></div>
         <div class="field"><label data-i18n="axes.y2min">Y2 min</label><input type="number" data-path="axes.y2min" data-type="nullable" placeholder="auto"></div>
         <div class="field"><label data-i18n="axes.y2max">Y2 max</label><input type="number" data-path="axes.y2max" data-type="nullable" placeholder="auto"></div>
+        <div class="field"><label data-i18n="axes.zmin">Z min (3D)</label><input type="number" data-path="axes.zmin" data-type="nullable" placeholder="auto"></div>
+        <div class="field"><label data-i18n="axes.zmax">Z max (3D)</label><input type="number" data-path="axes.zmax" data-type="nullable" placeholder="auto"></div>
         <div class="field"><label data-i18n="axes.grid">Grid</label><select data-path="axes.grid"><option value="auto" data-i18n="opt.auto">auto</option><option value="none" data-i18n="opt.none">none</option><option value="major" data-i18n="axes.major">major</option><option value="both" data-i18n="axes.both">major + minor</option></select></div>
         <div class="field"><label data-i18n="axes.ticks">Tick direction</label><select data-path="axes.tick_direction"><option value="in" data-i18n="axes.in">in</option><option value="out" data-i18n="axes.out">out</option><option value="inout" data-i18n="axes.inout">across</option></select></div>
         <div class="field"><label data-i18n="axes.spines">Frame</label><select data-path="axes.spines"><option value="box" data-i18n="axes.box">box</option><option value="open" data-i18n="axes.open">open (L)</option><option value="none" data-i18n="opt.none">none</option></select></div>
@@ -347,6 +349,19 @@
     <div class="progress" id="modulesProgress" hidden><div class="bar"></div></div>
     <p class="phase small" id="modulesPhase"></p>
     <div id="modulesTable" class="modules-table"></div>
+    <section class="umod mod-cat" id="userModules">
+      <h3 data-i18n="umod.title">Your modules (from PyPI)</h3>
+      <p class="umod-warning small" data-i18n="umod.warning">Third-party code.</p>
+      <div class="umod-add">
+        <input type="text" id="umodName" spellcheck="false" autocomplete="off" maxlength="100" data-i18n-placeholder="umod.placeholder">
+        <button class="btn small" id="umodCheck" data-i18n="umod.check">Check</button>
+      </div>
+      <p class="small muted" id="umodOffline" data-i18n="umod.offline" hidden>Needs the internet.</p>
+      <div class="progress" id="umodProgress" hidden><div class="bar"></div></div>
+      <p class="phase small" id="umodPhase"></p>
+      <div id="umodReview" class="umod-review" hidden></div>
+      <div id="umodList"></div>
+    </section>
   </div>
 </dialog>
 

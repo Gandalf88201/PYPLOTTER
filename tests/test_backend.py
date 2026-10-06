@@ -9,6 +9,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -19,7 +20,7 @@ import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 import matplotlib  # noqa: E402
 
-from pyplotter import catalog, exporters, plotting, readers, samples, smart  # noqa: E402
+from pyplotter import catalog, exporters, licenses, modules, plotting, readers, samples, smart  # noqa: E402
 from pyplotter.modules import ModuleManager, PipProgress, Job, version_tuple, load_registry  # noqa: E402
 
 
@@ -119,6 +120,162 @@ class TestModules(unittest.TestCase):
             self.assertEqual(mm._specs(['numpy'], False, reinstall=True), [f'numpy=={np.__version__}'])
 
 
+
+class TestUserModules(unittest.TestCase):
+    """Modules the user adds from PyPI, with pip replaced by a fake (no network)."""
+
+    def test_package_names(self):
+        for ok in ('lmfit', 'scikit-learn', 'zope.interface', 'A_b9'):
+            self.assertEqual(modules.check_package_name(f' {ok} '), ok)
+        for bad in ('', 'lmfit==1.0', 'lmfit>=1', 'x[extra]', 'git+https://github.com/a/b', 'https://x.org/p.whl',
+                    '../pkg', '/tmp/pkg', '-r', '--index-url=http://evil', 'a b', 'x;rm', 'pkg-', 'a' * 101):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                modules.check_package_name(bad)
+        self.assertEqual(modules.canonical('Scikit_Learn.x'), 'scikit-learn-x')
+
+    def test_licences(self):
+        c = licenses.classify
+        cases = [
+            (('MIT',), 'osi'), (('MIT OR LicenseRef-Proprietary',), 'osi'), (('GPL-3.0-only AND MIT',), 'osi'),
+            (('Apache-2.0 WITH LLVM-exception',), 'osi'), (('LicenseRef-Proprietary',), 'proprietary'),
+            (('CC-BY-NC-4.0',), 'not_osi'), (('Weird-1.0',), 'unknown'),
+            (('BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0',), 'osi'), (('CC0-1.0',), 'not_osi'),
+            (('MIT-CMU',), 'osi'),
+            (('', ['License :: OSI Approved :: BSD License']), 'osi'),
+            (('', ['License :: Other/Proprietary License']), 'proprietary'),
+            (('', ['License :: Freeware']), 'not_osi'),
+            (('', [], 'BSD 3-Clause License'), 'osi'), (('', [], 'Apache Software License 2.0'), 'osi'),
+            (('', [], 'Copyright (c) 2024 Someone\n\nPermission is hereby granted, free of charge, to any person'), 'osi'),
+            (('', [], 'Proprietary. All rights reserved.'), 'proprietary'), (('', [], ''), 'unknown'),
+        ]
+        for args, want in cases:
+            with self.subTest(args=args):
+                self.assertEqual(c(*args)['status'], want)
+        self.assertEqual(c('', [], 'Copyright 2024 X\n\nPermission is hereby granted, free of charge')['license'], 'MIT')
+        # a pip report entry and an installed distribution's metadata
+        self.assertEqual(licenses.from_metadata({'license_expression': 'BSD-3-Clause'})['status'], 'osi')
+        self.assertEqual(licenses.from_metadata(modules.metadata.distribution('numpy').metadata)['status'], 'osi')
+
+    def _manager(self, tmp, report, installed, users=()):
+        """A ModuleManager whose pip only records its arguments and answers the dry run with `report`."""
+        mm = ModuleManager(state_dir=tmp, online=True)
+        mm.calls = []
+        mm._prepare_pip = lambda job: None
+        mm.verify_async = lambda force=False: None
+
+        def fake_pip(job, args, on_line=None):
+            mm.calls.append(args)
+            if '--dry-run' in args:
+                Path(args[args.index('--report') + 1]).write_text(json.dumps({'install': report}), encoding='utf-8')
+            elif args[0] == 'install':
+                name, version = args[-1].split('==')
+                installed[modules.canonical(name)] = version
+            elif args[0] == 'uninstall':
+                installed.pop(modules.canonical(args[-1]), None)
+            return 0
+        mm._pip = fake_pip
+        real_version = modules.installed_version
+
+        def version(dist):
+            return installed.get(modules.canonical(dist)) if modules.canonical(dist) in ('propkg', 'helper') \
+                else real_version(dist)
+
+        def info(name):
+            v = installed.get(modules.canonical(name))
+            return v and {'name': 'propkg', 'version': v, 'license': 'LicenseRef-Proprietary', 'status': 'proprietary',
+                          'summary': 'A test package', 'imports': ['propkg']}
+        patches = [mock.patch.object(modules, 'installed_version', version), mock.patch.object(modules, 'dist_info', info),
+                   mock.patch.object(modules, 'dependents', lambda name: list(users))]
+        for p in patches:
+            p.start()
+            self.addCleanup(p.stop)
+        return mm
+
+    @staticmethod
+    def _wait(job):
+        for _ in range(200):
+            if job.state != 'running':
+                return job
+            time.sleep(0.02)
+        raise AssertionError('job did not finish')
+
+    REPORT = [
+        {'requested': True, 'metadata': {'name': 'propkg', 'version': '1.0', 'summary': 'A test package',
+                                         'license_expression': 'LicenseRef-Proprietary'}},
+        {'requested': False, 'metadata': {'name': 'helper', 'version': '2.1', 'classifier': ['License :: OSI Approved :: MIT License']}},
+    ]
+
+    def test_inspect_confirm_install_uninstall(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            installed = {}
+            mm = self._manager(tmp, self.REPORT, installed)
+            with self.assertRaises(ValueError):
+                mm.start_inspect('matplotlib')                      # in the registry: installed from the list
+            with self.assertRaises(ValueError):
+                mm.start_inspect('propkg --pre')
+            job = self._wait(mm.start_inspect('propkg'))
+            self.assertEqual(job.state, 'done', job.error)
+            r = job.result
+            self.assertTrue(r['needs_confirm'])
+            self.assertEqual([(p['name'], p['status']) for p in r['packages']], [('propkg', 'proprietary'), ('helper', 'osi')])
+            self.assertEqual(mm.calls[0][-3:], ['--upgrade-strategy', 'only-if-needed', 'propkg'])
+            with self.assertRaises(ValueError):
+                mm.start_user_install(job.id)                       # licence not confirmed
+            with self.assertRaises(ValueError):
+                mm.start_user_install('no-such-job', accept=True)
+            done = self._wait(mm.start_user_install(job.id, accept=True))
+            self.assertEqual(done.state, 'done', done.error)
+            self.assertEqual(mm.calls[-1], ['install', '--progress-bar', 'raw', '--upgrade-strategy', 'only-if-needed',
+                                            'propkg==1.0'])         # the version reviewed, as one argument
+            saved = json.loads((Path(tmp) / 'user-modules.json').read_text(encoding='utf-8'))
+            self.assertEqual(saved['schema'], 'pyplotter-user-modules/1')
+            rec = saved['modules'][0]
+            self.assertEqual((rec['pip'], rec['version'], rec['status'], rec['accepted']), ('propkg', '1.0', 'proprietary', True))
+            self.assertEqual([p['name'] for p in rec['packages']], ['propkg', 'helper'])
+            mm.set_user_cite('propkg', 'Doe, J. Propkg (2024).')
+            self.assertEqual(mm.user_citations(['propkg', 'scipy']), ['Doe, J. Propkg (2024).'])
+            row = mm.status()['user_modules'][0]
+            self.assertEqual((row['installed'], row['imports'], row['cite']), ('1.0', ['propkg'], 'Doe, J. Propkg (2024).'))
+            self.assertEqual(mm.missing(['propkg']), [])
+
+            # A new environment: the record stays, the module is missing and can be installed again.
+            installed.clear()
+            mm2 = self._manager(tmp, self.REPORT, installed)
+            self.assertIsNone(mm2.status()['user_modules'][0]['installed'])
+            self.assertEqual(mm2.missing(['propkg']), ['propkg'])
+            with self.assertRaises(modules.MissingUserModules):
+                mm2.require(['propkg'])
+            installed['propkg'] = '1.0'
+
+            mm3 = self._manager(tmp, self.REPORT, installed, users=['other-package'])
+            with self.assertRaises(ValueError):
+                mm3.start_uninstall('propkg')                       # another package needs it
+            mm4 = self._manager(tmp, self.REPORT, installed)
+            with self.assertRaises(ValueError):
+                mm4.start_uninstall('numpy')                        # not one of the user's modules
+            gone = self._wait(mm4.start_uninstall('propkg'))
+            self.assertEqual(gone.state, 'done', gone.error)
+            self.assertEqual(mm4.calls[-1], ['uninstall', '--yes', 'propkg'])
+            self.assertEqual(json.loads((Path(tmp) / 'user-modules.json').read_text(encoding='utf-8'))['modules'], [])
+
+    def test_open_source_needs_no_confirmation_and_offline(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            report = [{'requested': True, 'metadata': {'name': 'propkg', 'version': '3.0', 'license_expression': 'MIT'}}]
+            mm = self._manager(tmp, report, {})
+            job = self._wait(mm.start_inspect('propkg'))
+            self.assertFalse(job.result['needs_confirm'])
+            self.assertEqual(self._wait(mm.start_user_install(job.id)).state, 'done')
+            with self.assertRaises(ValueError):
+                ModuleManager(state_dir=tmp, online=False).start_inspect('propkg')
+
+    def test_tampered_record_is_ignored(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / 'user-modules.json').write_text(json.dumps({'schema': 'pyplotter-user-modules/1', 'modules': [
+                {'pip': '--index-url=http://evil.example'}, {'pip': 'fine-name', 'version': '1'}]}), encoding='utf-8')
+            mm = ModuleManager(state_dir=tmp, online=False)
+            self.assertEqual(list(mm.user), ['fine-name'])
+
+
 class TestReaders(TempDir):
     def test_italian_csv(self):
         p = self.write('it.csv', 'Tempo;Valore\n0,5;1,25\n1,0;2,5\n1,5;3,75\n')
@@ -211,6 +368,51 @@ class TestReaders(TempDir):
         self.assertEqual(list(df.columns), ['x (1/CM)', 'y (ABSORBANCE)'])
         np.testing.assert_allclose(df.iloc[:, 0], [400, 401, 402, 403, 404, 405])
         np.testing.assert_allclose(df.iloc[:, 1], [1, 2, 3, 4, 5, 6])
+
+    @staticmethod
+    def jcamp_compress(values, per_line=10, dup=True):
+        """Encode integers as JCAMP-DX DIFDUP lines (SQZ first value, DIF differences, DUP repeats), with
+        the last value of each line repeated as the Y check at the start of the next one."""
+        sqz = '@ABCDEFGHI'
+        dif = '%JKLMNOPQR'
+        def char(v, table, neg):
+            s = str(abs(v))
+            return (table[int(s[0])] if v >= 0 else neg[int(s[0]) - 1]) + s[1:]
+        lines, start = [], 0
+        while start < len(values):
+            chunk = values[start:start + per_line]
+            out = [str(start), char(chunk[0], sqz, 'abcdefghi')]
+            steps = [b - a for a, b in zip(chunk, chunk[1:])]
+            i = 0
+            while i < len(steps):
+                j = i
+                while dup and j + 1 < len(steps) and steps[j + 1] == steps[i]:
+                    j += 1
+                out.append(char(steps[i], dif, 'jklmnopqr'))
+                if j > i:
+                    out.append('STUVWXYZs'[j - i])            # the difference occurs j - i + 1 times
+                i = j + 1
+            lines.append(''.join(out))
+            start += per_line - 1 if start + per_line < len(values) else per_line   # repeat the last value
+        return lines
+
+    def test_jcamp_compressed_forms(self):
+        rng = np.random.default_rng(7)
+        values = list(np.cumsum(rng.integers(-40, 40, 95)).astype(int))
+        values[30:38] = [values[30]] * 8                             # a flat stretch: DUP of a zero difference
+        values[50:56] = [values[50] + 7 * k for k in range(6)]       # a constant slope: DUP of a difference
+        head = ('##TITLE=t\n##JCAMP-DX=5.01\n##XUNITS=1/CM\n##YUNITS=ABSORBANCE\n##FIRSTX=0\n'
+                f'##LASTX={len(values) - 1}\n##NPOINTS={len(values)}\n##XFACTOR=1\n##YFACTOR=0.001\n'
+                '##XYDATA=(X++(Y..Y))\n')
+        p = self.write('difdup.jdx', head + '\n'.join(self.jcamp_compress(values)) + '\n##END=\n')
+        df, _ = readers.read_table(p, 'jcamp')
+        np.testing.assert_allclose(df.iloc[:, 1], np.array(values) * 0.001)
+        # PAC: numbers separated only by their sign (as in NIST files), and AFFN with exponents
+        pac = head.replace(f'##NPOINTS={len(values)}', '##NPOINTS=6').replace(f'##LASTX={len(values) - 1}', '##LASTX=5')
+        df, _ = readers.read_table(self.write('pac.jdx', pac + '0-15-284+12\n3 39-354 1.5E+1\n##END=\n'), 'jcamp')
+        np.testing.assert_allclose(df.iloc[:, 1], np.array([-15, -284, 12, 39, -354, 15]) * 0.001)
+        with self.assertRaises(ValueError):                         # fewer values than ##NPOINTS: damaged
+            readers.read_table(self.write('short.jdx', head + '0 1 2 3\n##END=\n'), 'jcamp')
 
     @unittest.skipUnless(has('openpyxl'), 'openpyxl not installed')
     def test_excel(self):
@@ -328,7 +530,36 @@ class TestPlotting(unittest.TestCase):
         'hist2d': ('cloud', {'x': 'x', 'y': ['y']}),
         'corr': ('cloud', {'y': ['x', 'y', 'z', 'w']}),
         'pairplot': ('cloud', {'y': ['x', 'y', 'w'], 'hue': 'class'}),
+        'surface3d': ('surface', {'x': 'x', 'y': ['y'], 'z': 'z'}),
+        'scatter3d': ('cloud', {'x': 'x', 'y': ['y'], 'z': 'z', 'hue': 'class'}),
+        'waterfall': ('spectra', {'x': 'Wavelength (nm)', 'y': ['Sample A', 'Sample B', 'Sample C']}),
     }
+
+    def test_three_d_variants(self):
+        """Scattered points become a triangulated surface; wire frame, a joined 3D line, numeric depths,
+        view and z limits; a 3D figure offers no axes for clicking points."""
+        cloud, spectra = samples.make('cloud'), samples.make('spectra')
+        for spec in ({'kind': 'surface3d', 'x': 'x', 'y': ['y'], 'z': 'z'},
+                     {'kind': 'surface3d', 'x': 'x', 'y': ['y'], 'z': 'z', 'style': {'wireframe': True}},
+                     {'kind': 'scatter3d', 'x': 'x', 'y': ['y'], 'z': 'z', 'style': {'connect': True, 'elev': 10, 'azim': 30},
+                      'axes': {'zmin': -5, 'zmax': 5}}):
+            with self.subTest(spec=spec):
+                info = {}
+                self.assertTrue(plotting.render(cloud, spec, 'png', 40, info=info).startswith(b'\x89PNG'))
+                self.assertEqual(info['axes'], [])
+        wide = pd.DataFrame({'nm': np.arange(10.0), '10': np.arange(10.0), '20': np.ones(10), '35': np.zeros(10)})
+        fig = plotting.build_figure(wide, {'kind': 'waterfall', 'x': 'nm', 'y': ['10', '20', '35']})
+        self.assertEqual(sorted(set(fig.axes[0].lines[2].get_data_3d()[1])), [35.0])   # depth = the column's value
+        with self.assertRaises(plotting.SpecError):
+            plotting.render(spectra, {'kind': 'surface3d', 'x': 'Wavelength (nm)', 'y': ['Sample A']}, 'png', 40)
+
+    @unittest.skipUnless(has('plotly'), 'plotly not installed')
+    def test_three_d_interactive_html(self):
+        for kind, (sample, spec) in self.CASES.items():
+            if kind in catalog.THREE_D_KINDS:
+                with self.subTest(kind=kind):
+                    html = exporters.plotly_html(samples.make(sample), dict(spec, kind=kind))
+                    self.assertIn(b'scene', html)
 
     def test_every_kind_renders(self):
         missing = set(catalog.KINDS) - set(self.CASES) - {'strip', 'swarm'}

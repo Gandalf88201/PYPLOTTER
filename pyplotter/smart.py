@@ -178,6 +178,8 @@ def recommend(cols, mapping, n_rows):
         add('contour', 0.92, 'surface')
         add('heatmap', 0.88, 'surface')
         add('scatter', 0.8, 'color_by_z')
+        add('surface3d', 0.7, 'surface')
+        add('scatter3d', 0.4, 'surface')
     if not ys:
         if xk == 'category':
             add('bar', 0.9, 'counts')
@@ -198,6 +200,8 @@ def recommend(cols, mapping, n_rows):
         elif xk == 'numeric':
             if xi.get('monotonic'):
                 add('line', 0.95, 'monotonic_x')
+                if 3 <= len(numeric_y) <= 60:
+                    add('waterfall', 0.4, 'monotonic_x')
                 add('scatter', 0.7, 'monotonic_x')
                 add('step', 0.5, 'monotonic_x')
                 add('area', 0.45, 'monotonic_x')

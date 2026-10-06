@@ -30,7 +30,7 @@ MAX_PIXELS = 400e6
 MAX_CORR_COLUMNS = 2000      # a larger matrix has more cells than a figure has pixels
 SMOOTH_MATRIX = 512          # larger matrices are drawn anti-aliased: nearest-neighbour would drop rows
 MAX_DRAWN_SERIES = 2000      # one line, box… per column: beyond this a figure takes minutes (a heat map, not)
-WHOLE_TABLE_KINDS = {'heatmap', 'corr', 'contour', 'pairplot', 'pie', 'hexbin', 'hist2d'}   # not one artist per column
+WHOLE_TABLE_KINDS = {'heatmap', 'corr', 'contour', 'pairplot', 'pie', 'hexbin', 'hist2d', 'surface3d'}   # not one artist per column
 
 DEFAULT_SPEC = {
     'kind': 'line', 'lang': 'en',
@@ -42,6 +42,7 @@ DEFAULT_SPEC = {
              'title_size': 9, 'label_size': 8, 'tick_size': 7, 'legend_size': 7, 'mathtext': 'dejavusans',
              'bold_labels': False},
     'axes': {'xscale': 'linear', 'yscale': 'linear', 'xmin': None, 'xmax': None, 'ymin': None, 'ymax': None,
+             'zmin': None, 'zmax': None,
              'y2min': None, 'y2max': None, 'grid': 'auto', 'tick_direction': 'in', 'minor_ticks': True,
              'mirror_ticks': True, 'spines': 'box', 'invert_x': False, 'invert_y': False, 'aspect': 'auto',
              'xrotation': 0, 'sci': False, 'linewidth': 0.8},
@@ -51,7 +52,8 @@ DEFAULT_SPEC = {
               'bins': 30, 'density': False, 'stacked': False, 'fill': True, 'levels': 12, 'contour_lines': True,
               'gridsize': 40, 'fit': 'linear', 'fit_degree': 2, 'annotate': False, 'capsize': 2,
               'error_style': 'bars', 'colorbar': True, 'vmin': None, 'vmax': None, 'polar_degrees': True,
-              'bar_width': 0.8, 'agg': 'mean', 'show_fliers': True},
+              'bar_width': 0.8, 'agg': 'mean', 'show_fliers': True,
+              'elev': 25, 'azim': -60, 'wireframe': False, 'connect': False},
 }
 
 LABELS = {
@@ -800,6 +802,95 @@ def plot_polar(ax, d, ser, ycols):
         marker=st['marker'], ms=st['markersize'], alpha=st['alpha'], label=st['label']))
 
 
+# ------------------------------------------------------------------ 3D
+def plot_surface3d(ax, d, ser, ycols):
+    """Surface z(x, y): from X, Y, Z columns forming a grid (as for contour), else triangulated."""
+    spec = d.spec
+    if not (spec['x'] and ycols and spec['z']):
+        raise SpecError('A 3D surface needs X, Y and Z columns.')
+    cmap = get_cmap(spec)
+    vmin, vmax = _num(spec['style']['vmin']), _num(spec['style']['vmax'])
+    grid = _grid_from_xyz(d)
+    color = ser.next('surface', spec['z'])['color']
+    if grid is not None and grid.shape[0] > 1 and grid.shape[1] > 1 and grid.notna().all().all():
+        X, Y = np.meshgrid(np.asarray(grid.columns, dtype=float), np.asarray(grid.index, dtype=float))
+        Z = grid.to_numpy(dtype=float)
+        if spec['style']['wireframe']:
+            ax.plot_wireframe(X, Y, Z, color=color, linewidth=float(spec['style']['linewidth']) * 0.5)
+            return 'nolegend'
+        m = ax.plot_surface(X, Y, Z, cmap=cmap, vmin=vmin, vmax=vmax, linewidth=0, antialiased=True,
+                            rcount=min(Z.shape[0], 200), ccount=min(Z.shape[1], 200))
+    else:
+        frame = d.df[[spec['x'], ycols[0], spec['z']]].apply(pd.to_numeric, errors='coerce').dropna()
+        if len(frame) < 4:
+            raise SpecError('Not enough points for a 3D surface.')
+        x, y, z = (frame.iloc[:, i].to_numpy() for i in range(3))
+        if spec['style']['wireframe']:
+            ax.plot_trisurf(x, y, z, color='none', edgecolor=color, linewidth=float(spec['style']['linewidth']) * 0.4)
+            return 'nolegend'
+        m = ax.plot_trisurf(x, y, z, cmap=cmap, vmin=vmin, vmax=vmax, linewidth=0, antialiased=True)
+    return m, spec['z']
+
+
+def plot_scatter3d(ax, d, ser, ycols):
+    """Points (x, y, z), one colour per Y column and group; 'connect' joins them in order (a 3D line)."""
+    spec = d.spec
+    z = spec['z']
+    if not (spec['x'] and ycols and z):
+        raise SpecError('A 3D scatter needs X, Y and Z columns.')
+    connect = bool(spec['style']['connect'])
+
+    def draw(x, y, st, sub):
+        zz = d.numeric(z, sub).to_numpy(dtype=float)
+        if connect:
+            ax.plot(x, y, zz, color=st['color'], ls=st['linestyle'], lw=st['linewidth'], marker=st['marker'] or None,
+                    ms=st['markersize'], alpha=st['alpha'], label=st['label'])
+        else:
+            ax.scatter(x, y, zz, color=st['color'], s=st['markersize'] ** 2, marker=st['marker'] or 'o',
+                       alpha=st['alpha'], linewidths=0, label=st['label'], depthshade=True)
+    _xy_loop(ax, d, ser, ycols, draw)
+
+
+def plot_waterfall(ax, d, ser, ycols):
+    """Each Y column (e.g. a spectrum at one time) as a curve at its own depth: the column's value when
+    every name is a number (times, temperatures…), else its position."""
+    if not ycols:
+        raise SpecError('Choose the Y columns (one curve each).')
+    try:
+        depth = [float(str(c).replace(',', '.')) for c in ycols]
+        numeric = True
+    except ValueError:
+        depth, numeric = list(range(len(ycols))), False
+    for pos, ycol in zip(depth, ycols):
+        x, y, _ = d.xy(ycol)
+        if not len(x):
+            continue
+        st = ser.next(d.key_prefix + ycol, _label(d, ycol, False))
+        ax.plot(x.astype(float), np.full(len(x), pos, dtype=float), y.astype(float), color=st['color'],
+                ls=st['linestyle'], lw=st['linewidth'], alpha=st['alpha'], label=st['label'])
+    if not numeric:
+        step = max(1, int(np.ceil(len(ycols) / 8)))
+        ax.set_yticks(depth[::step], [str(c) for c in ycols[::step]])
+
+
+def _style_axes3d(ax, spec, kind):
+    """3D axes: view angle, grid, tick direction, limits on the three axes."""
+    st, a = spec['style'], spec['axes']
+    ax.view_init(elev=float(_num(st['elev']) if _num(st['elev']) is not None else 25),
+                 azim=float(_num(st['azim']) if _num(st['azim']) is not None else -60))
+    ax.grid(a['grid'] != 'none')
+    ax.tick_params(which='both', direction=a['tick_direction'], pad=1)
+    for get, setter in (('x', ax.set_xlim), ('y', ax.set_ylim), ('z', ax.set_zlim)):
+        lo, hi = _num(a.get(f'{get}min')), _num(a.get(f'{get}max'))
+        if lo is not None or hi is not None:
+            setter(lo, hi)
+    if a['invert_x']:
+        ax.invert_xaxis()
+    if a['invert_y']:
+        ax.invert_yaxis()
+    ax.set_box_aspect(None, zoom=0.88)                    # room for the tick labels inside the figure
+
+
 PLOTTERS = {
     'line': plot_line, 'scatter': plot_scatter, 'step': plot_step, 'area': plot_area, 'stem': plot_stem,
     'errorbar': plot_errorbar, 'regression': plot_regression, 'polar': plot_polar,
@@ -809,6 +900,7 @@ PLOTTERS = {
     'hist': plot_hist, 'kde': plot_kde, 'ecdf': plot_ecdf,
     'heatmap': plot_heatmap, 'contour': plot_contour, 'hexbin': plot_hexbin, 'hist2d': plot_hist2d,
     'corr': plot_corr,
+    'surface3d': plot_surface3d, 'scatter3d': plot_scatter3d, 'waterfall': plot_waterfall,
 }
 
 
@@ -1053,6 +1145,10 @@ def _series_count(df, spec, layers):
     return max(1, int(n))
 
 
+def _projection(kind):
+    return 'polar' if kind == 'polar' else '3d' if kind in catalog.THREE_D_KINDS else None
+
+
 def build_figure(df, spec, overlay_data=None, extra_data=None, series_log=None):
     """Create the Matplotlib Figure. Call inside style_context(spec) and rc_context(_rc(spec)).
 
@@ -1083,8 +1179,9 @@ def build_figure(df, spec, overlay_data=None, extra_data=None, series_log=None):
         ncols = max(1, min(n, int(layout.get('ncols') or 2)))
         nrows = -(-n // ncols)
         share = bool(layout.get('share', True))
-        axes = fig.subplots(nrows, ncols, squeeze=False, sharex=share, sharey=share,
-                            subplot_kw={'projection': 'polar'} if kind == 'polar' else None)
+        axes = fig.subplots(nrows, ncols, squeeze=False, sharex=share and kind not in catalog.THREE_D_KINDS,
+                            sharey=share and kind not in catalog.THREE_D_KINDS,
+                            subplot_kw={'projection': _projection(kind)} if _projection(kind) else None)
         for i, ax in enumerate(axes.flat):
             if i >= n:
                 ax.set_visible(False)
@@ -1099,7 +1196,7 @@ def build_figure(df, spec, overlay_data=None, extra_data=None, series_log=None):
             fig.suptitle(spec['text']['title'], fontweight=weight)
         return fig
 
-    ax = fig.add_subplot(projection='polar' if kind == 'polar' else None)
+    ax = fig.add_subplot(projection=_projection(kind))
     extras = [d for _, d in layers[1:]] if kind in EXTRA_KINDS else []
     _draw_panel(fig, ax, layers[0][1], Series(spec, series_log, n_series), spec, kind, extras, overlay_data,
                 title=spec['text']['title'])
@@ -1113,7 +1210,7 @@ def _draw_panel(fig, ax, d, ser, spec, kind, extras, overlay_data, title='', out
     weight = 'bold' if t['bold_labels'] else 'normal'
     ycols = d.spec['y']
     if kind in ('line', 'scatter', 'step', 'area', 'errorbar', 'regression', 'stem', 'polar', 'hexbin',
-                'hist2d', 'contour') and not ycols:
+                'hist2d', 'contour', 'surface3d', 'scatter3d', 'waterfall') and not ycols:
         raise SpecError('Choose at least one Y column.')
     result = PLOTTERS[kind](ax, d, ser, ycols)
     for ed in extras or []:
@@ -1136,18 +1233,26 @@ def _draw_panel(fig, ax, d, ser, spec, kind, extras, overlay_data, title='', out
         auto_x, auto_y = '', ''
     elif kind == 'corr' or kind == 'pie':
         auto_x = auto_y = ''
+    elif kind == 'waterfall':
+        auto_y = ''
     if kind == 'barh':
         auto_x, auto_y = auto_y, auto_x
     if kind != 'pie':
-        ax.set_xlabel((xlabel or auto_x) if outer_x else '', fontweight=weight)
-        ax.set_ylabel((ylabel or auto_y) if outer_y else '', fontweight=weight)
+        three_d = kind in catalog.THREE_D_KINDS
+        ax.set_xlabel((xlabel or auto_x) if outer_x or three_d else '', fontweight=weight)
+        ax.set_ylabel((ylabel or auto_y) if outer_y or three_d else '', fontweight=weight)
+    if kind in catalog.THREE_D_KINDS:            # the vertical axis: Z, or the values of the curves
+        auto_z = d.spec['z'] or (ycols[0] if kind == 'waterfall' and len(ycols) == 1 else d.lang['value'])
+        ax.set_zlabel(t['zlabel'] or auto_z, fontweight=weight)
     if title:
         ax.set_title(title, fontweight=weight, loc='left' if title.startswith('(') else 'center')
 
     if isinstance(result, tuple) and spec['style']['colorbar']:
         mappable, zlabel = result
-        cb = fig.colorbar(mappable, ax=ax, pad=0.02, aspect=25)
-        cb.set_label(t['zlabel'] or zlabel or '', fontweight=weight)
+        three_d = kind in catalog.THREE_D_KINDS
+        cb = fig.colorbar(mappable, ax=ax, pad=0.15 if three_d else 0.02, aspect=25, shrink=0.7 if three_d else 1.0)
+        if not three_d:                                   # in 3D the z axis already carries the label
+            cb.set_label(t['zlabel'] or zlabel or '', fontweight=weight)
         cb.ax.tick_params(direction=spec['axes']['tick_direction'], labelsize=float(t['tick_size']))
         cb.outline.set_linewidth(float(spec['axes']['linewidth']))
 
@@ -1166,9 +1271,12 @@ def _draw_panel(fig, ax, d, ser, spec, kind, extras, overlay_data, title='', out
 
     category_x = kind in ('bar', 'box', 'violin', 'strip', 'swarm')
     category_y = kind == 'barh'
-    _style_axes(ax, spec, kind, twin=ax2, category_x=category_x, category_y=category_y)
-    xlike = d.col(d.spec['x']) if d.spec['x'] and kind in catalog.TWIN_KINDS | {'area', 'stem', 'regression'} else None
-    _apply_limits(ax, spec, xlike, kind)
+    if kind in catalog.THREE_D_KINDS:
+        _style_axes3d(ax, spec, kind)
+    else:
+        _style_axes(ax, spec, kind, twin=ax2, category_x=category_x, category_y=category_y)
+        xlike = d.col(d.spec['x']) if d.spec['x'] and kind in catalog.TWIN_KINDS | {'area', 'stem', 'regression'} else None
+        _apply_limits(ax, spec, xlike, kind)
 
     handles, labels = ax.get_legend_handles_labels()
     if ax2 is not None:

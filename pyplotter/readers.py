@@ -264,11 +264,80 @@ def read_text(path, compression=None, options=None):
 
 
 # ------------------------------------------------------------------ JCAMP-DX (spectra)
+# ASDF compression of JCAMP-DX (McDonald & Wilks 1988): a number may start with a SQZ character (its
+# first digit, with the sign), be a DIF difference from the previous value, or a DUP count repeating
+# the previous value or difference; PAC separates numbers by their sign only; AFFN is plain text.
+_SQZ = {'@': 0, **{c: i + 1 for i, c in enumerate('ABCDEFGHI')}, **{c: -(i + 1) for i, c in enumerate('abcdefghi')}}
+_DIF = {'%': 0, **{c: i + 1 for i, c in enumerate('JKLMNOPQR')}, **{c: -(i + 1) for i, c in enumerate('jklmnopqr')}}
+_DUP = {**{c: i + 1 for i, c in enumerate('STUVWXYZ')}, 's': 9}
+_AFFN = re.compile(r'[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?')
+
+
+def _asdf_tokens(line):
+    """[(kind, value)] of one data line: kind 'abs' (AFFN, PAC or SQZ), 'dif' or 'dup' (a count)."""
+    if not re.search(r'[@%A-DF-Za-df-z]', line) and not re.search(r'[eE](?![+-]?\d)', line):
+        return [('abs', float(v)) for v in _AFFN.findall(line)]       # AFFN / PAC (exponents allowed)
+    out, i, n = [], 0, len(line)
+    while i < n:
+        c = line[i]
+        if c in ' \t,;':
+            i += 1
+            continue
+        if c in _SQZ or c in _DIF or c in _DUP:
+            kind = 'abs' if c in _SQZ else 'dif' if c in _DIF else 'dup'
+            first = (_SQZ.get(c) if kind == 'abs' else _DIF.get(c) if kind == 'dif' else _DUP[c])
+            sign, digits = (-1 if first < 0 else 1), str(abs(first))
+        elif c in '+-' or c.isdigit() or c == '.':
+            kind, sign, digits = 'abs', (-1 if c == '-' else 1), ('' if c in '+-' else c)
+        else:
+            raise ValueError(f'Unexpected character {c!r} in JCAMP-DX data: {line.strip()[:60]}')
+        i += 1
+        while i < n and (line[i].isdigit() or line[i] == '.'):
+            digits += line[i]
+            i += 1
+        if not digits:
+            continue
+        out.append((kind, int(digits) if kind == 'dup' else sign * float(digits)))
+    return out
+
+
+def _decode_xpp(lines):
+    """Y values of X++(Y..Y) lines, any ASDF form; the DIF check value repeated at the start of the
+    next line is dropped. Returns (first x of each line, all y)."""
+    xs, ys = [], []
+    last_dif = None                  # previous line ended in DIF form: its last y is repeated as a check
+    for line in lines:
+        tokens = _asdf_tokens(line)
+        if len(tokens) < 2:
+            continue
+        xs.append(tokens[0][1])
+        vals, prev, step, prev_kind = [], None, 0.0, None
+        for kind, v in tokens[1:]:
+            if kind == 'abs':
+                prev, prev_kind = v, 'abs'
+                vals.append(v)
+            elif kind == 'dif':
+                if prev is None:
+                    raise ValueError('JCAMP-DX: a DIF value without a value before it.')
+                step, prev_kind = v, 'dif'
+                prev = prev + v
+                vals.append(prev)
+            else:                    # DUP: the previous token occurs v times in all
+                for _ in range(int(v) - 1):
+                    prev = prev + step if prev_kind == 'dif' else prev
+                    vals.append(prev)
+        if last_dif is not None and vals and abs(vals[0] - last_dif) <= 1e-6 * max(1.0, abs(last_dif)):
+            vals = vals[1:]          # the Y check value
+        last_dif = vals[-1] if (vals and prev_kind == 'dif') else None
+        ys.append(vals)
+    return xs, ys
+
+
 def read_jcamp(path):
-    """JCAMP-DX spectra in AFFN form: ##XYDATA=(X++(Y..Y)), ##XYPOINTS or ##PEAK TABLE."""
+    """JCAMP-DX spectra: ##XYDATA=(X++(Y..Y)) in AFFN, PAC, SQZ, DIF and DUP form, ##XYPOINTS or ##PEAK TABLE."""
     text, _ = _decode(Path(path).read_bytes())
     meta, mode = {}, None
-    lines_x, lines_y = [], []        # X++(Y..Y): first x of each line and its y values
+    xpp_lines = []                   # X++(Y..Y) data lines
     pairs = []
     for line in text.splitlines():
         line = line.split('$$')[0].strip()
@@ -279,19 +348,17 @@ def read_jcamp(path):
             key = re.sub(r'[\s\-_/]', '', key).upper()
             if key in ('XYDATA', 'XYPOINTS', 'PEAKTABLE'):
                 mode = 'xpp' if '++' in value else 'pairs'
-            elif key == 'END' and (lines_y or pairs):
+            elif key == 'END' and (xpp_lines or pairs):
                 break
+            elif key == 'NTUPLES':
+                raise ValueError('JCAMP-DX with NTUPLES (e.g. NMR with real and imaginary parts) is not '
+                                 'supported yet; export the spectrum as XYDATA or CSV.')
             else:
                 meta[key] = value.strip()
                 mode = None
             continue
         if mode == 'xpp':
-            if re.search(r'[@%A-Za-z]', re.sub(r'(?<=\d)[eE](?=[+-]?\d)', '', line)):
-                raise ValueError('Compressed JCAMP-DX (SQZ/DIF) is not supported; export the spectrum as AFFN or CSV.')
-            vals = [float(v) for v in re.split(r'[\s,]+', line) if v]
-            if len(vals) >= 2:
-                lines_x.append(vals[0])
-                lines_y.append(vals[1:])
+            xpp_lines.append(line)
         elif mode == 'pairs':
             for pair in re.split(r'[;\s]+', line):
                 parts = [p for p in pair.split(',') if p]
@@ -299,8 +366,12 @@ def read_jcamp(path):
                     pairs.append((float(parts[0]), float(parts[1])))
     xf = float(meta.get('XFACTOR') or 1)
     yf = float(meta.get('YFACTOR') or 1)
-    if lines_y:
-        y = np.concatenate([np.asarray(v) for v in lines_y]) * yf
+    if xpp_lines:
+        lines_x, lines_y = _decode_xpp(xpp_lines)
+        y = np.concatenate([np.asarray(v, dtype=float) for v in lines_y]) * yf
+        expected = int(float(meta['NPOINTS'])) if meta.get('NPOINTS') else None
+        if expected is not None and expected != y.size:
+            raise ValueError(f'JCAMP-DX: {y.size} values read but ##NPOINTS={expected}; the file may be damaged.')
         if meta.get('FIRSTX') and meta.get('LASTX'):
             x = np.linspace(float(meta['FIRSTX']), float(meta['LASTX']), len(y))
         else:

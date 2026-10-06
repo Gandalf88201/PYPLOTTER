@@ -34,6 +34,7 @@ const KIND_OPTS = {
   barh: ['stacked', 'bar_width', 'agg', 'capsize'], box: ['show_fliers'], pie: ['agg'], hist: ['bins', 'density', 'stacked'],
   kde: ['fill'], heatmap: ['annotate', 'agg', 'colorbar', 'vmin', 'vmax'], contour: ['levels', 'contour_lines', 'colorbar', 'vmin', 'vmax'],
   hexbin: ['gridsize', 'colorbar'], hist2d: ['bins', 'density', 'colorbar'],
+  surface3d: ['wireframe', 'elev', 'azim', 'colorbar', 'vmin', 'vmax'], scatter3d: ['connect', 'elev', 'azim'], waterfall: ['elev', 'azim'],
 };
 const OPT_DEF = {
   bins: { type: 'number', min: 2, step: 1 }, density: { type: 'check' }, stacked: { type: 'check' }, fill: { type: 'check' },
@@ -43,9 +44,11 @@ const OPT_DEF = {
   error_style: { type: 'select', options: ['bars', 'band'], prefix: 'err.' }, colorbar: { type: 'check' },
   vmin: { type: 'nullable' }, vmax: { type: 'nullable' }, polar_degrees: { type: 'check' }, bar_width: { type: 'number', min: 0.1, max: 1, step: 0.05 },
   agg: { type: 'select', options: ['mean', 'median', 'sum', 'count', 'max', 'min'], prefix: 'agg.' }, show_fliers: { type: 'check' },
+  elev: { type: 'number', min: -90, max: 90, step: 5 }, azim: { type: 'number', min: -180, max: 180, step: 5 },
+  wireframe: { type: 'check' }, connect: { type: 'check' },
 };
 const UNIT_MM = { mm: 1, cm: 10, in: 25.4 };
-const KIND_GROUPS = ['xy', 'cat', 'dist', 'map', 'multi'];
+const KIND_GROUPS = ['xy', 'cat', 'dist', 'map', 'multi', '3d'];
 
 // ------------------------------------------------------------------ i18n
 function t(key, vars) {
@@ -394,7 +397,7 @@ function styleSnapshot() {
   const s = {};
   STYLE_KEYS.forEach(k => { s[k] = clone(state.spec[k]); });
   ['title', 'xlabel', 'ylabel', 'y2label', 'zlabel'].forEach(k => delete s.text[k]);
-  ['xmin', 'xmax', 'ymin', 'ymax', 'y2min', 'y2max'].forEach(k => delete s.axes[k]);
+  ['xmin', 'xmax', 'ymin', 'ymax', 'y2min', 'y2max', 'zmin', 'zmax'].forEach(k => delete s.axes[k]);
   delete s.style.vmin; delete s.style.vmax;
   return s;
 }
@@ -480,7 +483,7 @@ function buildKindOptions() {
   });
   if (wrap.children.length) box.prepend(wrap);
   $$('[data-path]', box).forEach(el => writeControl(el, getPath(state.spec, el.dataset.path)));
-  const usesCmap = ['heatmap', 'contour', 'hexbin', 'hist2d'].includes(state.spec.kind) || (state.spec.kind === 'scatter' && state.spec.z);
+  const usesCmap = ['heatmap', 'contour', 'hexbin', 'hist2d', 'surface3d'].includes(state.spec.kind) || (state.spec.kind === 'scatter' && state.spec.z);
   $('[data-for="cmap"]').classList.toggle('disabled', !usesCmap);
 }
 
@@ -1130,7 +1133,7 @@ function resetDataSpec(mapping, s = state.spec) {
   Object.assign(s, { kind: mapping.kind || 'line', x: mapping.x, y: mapping.y || [], y2: [], hue: null, z: mapping.z || null,
     xerr: mapping.xerr || null, yerr: mapping.yerr || null, series: {}, overlays: [] });
   ['title', 'xlabel', 'ylabel', 'y2label', 'zlabel'].forEach(k => { s.text[k] = ''; });
-  ['xmin', 'xmax', 'ymin', 'ymax', 'y2min', 'y2max'].forEach(k => { s.axes[k] = null; });
+  ['xmin', 'xmax', 'ymin', 'ymax', 'y2min', 'y2max', 'zmin', 'zmax'].forEach(k => { s.axes[k] = null; });
   s.style.vmin = null;
   s.style.vmax = null;
 }
@@ -1714,11 +1717,257 @@ function renderModules() {
     });
     box.append(sec);
   });
+  renderUserModules();
+}
+
+// ------------------------------------------------------------------ the user's own modules (from PyPI)
+// Check (pip dry run: the package and everything it brings, with licences) → review → install.
+// A licence that is not OSI-approved, or not recognised, needs the confirmation box ticked.
+const licBadge = (license, status) => {
+  const el = document.createElement('span');
+  el.className = 'lic ' + (status || 'unknown');
+  el.textContent = license || t('umod.status.unknown');
+  el.title = t('umod.status.' + (status || 'unknown'));
+  return el;
+};
+
+async function followJob(job, onUpdate, busy = true) {
+  if (busy) state.busyJob = job.id;
+  try {
+    while (job.state === 'running') {
+      onUpdate(job);
+      await new Promise(r => setTimeout(r, 400));
+      job = await api('/api/jobs/' + job.id);
+    }
+    onUpdate(job);
+  } finally {
+    if (busy) state.busyJob = null;
+  }
+  return job;
+}
+
+function renderUserModules() {
+  const st = state.status;
+  const online = st.online !== false;
+  $('#umodOffline').hidden = online;
+  $('#umodName').disabled = $('#umodCheck').disabled = !online || !!state.umodBusy;
+  const list = $('#umodList');
+  list.innerHTML = '';
+  const mods = st.user_modules || [];
+  if (!mods.length) {
+    const p = document.createElement('p');
+    p.className = 'small muted';
+    p.textContent = t('umod.empty');
+    list.append(p);
+    return;
+  }
+  mods.forEach(m => {
+    const row = document.createElement('div');
+    row.className = 'mod-row';
+    const info = document.createElement('div');
+    const name = document.createElement('b');
+    name.textContent = m.name;
+    const meta = document.createElement('div');
+    meta.className = 'meta';
+    meta.textContent = [m.summary, m.imports.length ? t('umod.import', { names: m.imports.join(', ') }) : '',
+      m.added ? t('umod.added', { date: m.added }) : '', m.accepted ? t('umod.accepted') : ''].filter(Boolean).join(' · ');
+    info.append(name, licBadge(m.license, m.status), meta);
+    if (m.installed && m.works === false && m.import_error) {
+      const err = document.createElement('div');
+      err.className = 'import-error';
+      err.textContent = m.import_error;
+      info.append(err);
+    }
+    if (m.packages.length > 1) {
+      const det = document.createElement('details');
+      const sum = document.createElement('summary');
+      sum.textContent = t('umod.deps', { n: m.packages.length - 1 });
+      const ul = document.createElement('ul');
+      m.packages.filter(d => d.name.toLowerCase() !== m.name.toLowerCase()).forEach(d => {
+        const li = document.createElement('li');
+        li.textContent = `${d.name} ${d.version} `;
+        li.append(licBadge(d.license, d.status));
+        ul.append(li);
+      });
+      det.append(sum, ul);
+      info.append(det);
+    }
+    const cite = document.createElement('input');
+    cite.type = 'text';
+    cite.className = 'cite';
+    cite.value = m.cite || '';
+    cite.placeholder = t('umod.cite');
+    cite.onchange = async () => {
+      try { state.status = await api('/api/modules/user/cite', { name: m.name, cite: cite.value }); } catch (e) { handleError(e); }
+    };
+    info.append(cite);
+    const status = document.createElement('span');
+    status.className = 'status';
+    if (!m.installed) { status.classList.add('no'); status.textContent = t('umod.missing'); }
+    else if (m.works === false) { status.classList.add('bad'); status.textContent = t('modules.broken', { v: m.installed }); }
+    else { status.classList.add('ok'); status.textContent = `${t('modules.installed', { v: m.installed })} · ${t(m.works ? 'modules.works' : 'modules.verifying')}`; }
+    if (m.restart) status.textContent += ` · ${t('modules.restart')}`;
+    const actions = document.createElement('span');
+    const button = (label, cls, fn) => {
+      const b = document.createElement('button');
+      b.className = 'btn small' + (cls ? ' ' + cls : '');
+      b.textContent = t(label);
+      b.disabled = !!state.umodBusy;
+      b.onclick = fn;
+      actions.append(b);
+    };
+    if (!m.installed) {
+      if (online) button('umod.reinstall', 'primary', () => umodInspect(m.name));
+      button('umod.forget', '', () => umodUninstall(m.name, false));
+    } else {
+      button('umod.uninstall', '', () => umodUninstall(m.name, true));
+    }
+    row.append(info, status, actions);
+    list.append(row);
+  });
+}
+
+function umodBusy(on) {
+  state.umodBusy = on;
+  $$('#modulesTable button, #btnUpdateAll, #btnRefresh, #btnVerify').forEach(b => { b.disabled = on; });
+  renderUserModules();
+}
+
+async function umodInspect(name) {
+  name = (name || '').trim();
+  if (!name) return;
+  if (state.busyJob) { toast(t('modules.busy'), true); return; }
+  $('#umodName').value = name;
+  const review = $('#umodReview');
+  const bar = $('#umodProgress');
+  const phase = $('#umodPhase');
+  review.hidden = true;
+  umodBusy(true);
+  try {
+    let job = await api('/api/modules/user/inspect', { name });
+    job = await followJob(job, j => { setBar(bar, j.progress); phase.textContent = t('umod.checking', { name }); }, false);
+    phase.textContent = job.state === 'done' ? '' : (job.error || t('phase.cancelled'));
+    if (job.state === 'done') showUmodReview(job);
+  } catch (e) {
+    phase.textContent = e.message;
+  } finally {
+    bar.hidden = true;
+    umodBusy(false);
+    renderModules();
+  }
+}
+
+function showUmodReview(job) {
+  const r = job.result;
+  const box = $('#umodReview');
+  box.innerHTML = '';
+  const head = document.createElement('p');
+  const b = document.createElement('b');
+  b.textContent = `${r.name} ${r.version}`;
+  head.append(b, licBadge(r.license, r.status), document.createTextNode(r.summary ? ' — ' + r.summary : ''));
+  box.append(head);
+  if (r.already) {
+    const p = document.createElement('p');
+    p.className = 'small muted';
+    p.textContent = t('umod.already');
+    box.append(p);
+  }
+  const p = document.createElement('p');
+  p.className = 'small';
+  p.textContent = t('umod.will_install', { n: r.packages.length });
+  const table = document.createElement('table');
+  r.packages.forEach(d => {
+    const tr = document.createElement('tr');
+    const c1 = document.createElement('td');
+    c1.textContent = `${d.name} ${d.version}`;
+    const c2 = document.createElement('td');
+    c2.append(licBadge(d.license, d.status));
+    const c3 = document.createElement('td');
+    c3.className = 'muted';
+    c3.textContent = t('umod.status.' + d.status) + (d.requested ? '' : ` · ${t('umod.dep')}`);
+    tr.append(c1, c2, c3);
+    table.append(tr);
+  });
+  box.append(p, table);
+  let accept = null;
+  if (r.needs_confirm) {
+    const warn = document.createElement('p');
+    warn.className = 'umod-warning small';
+    warn.textContent = t('umod.not_osi');
+    const lab = document.createElement('label');
+    lab.className = 'confirm small';
+    accept = document.createElement('input');
+    accept.type = 'checkbox';
+    const span = document.createElement('span');
+    span.textContent = t('umod.accept');
+    lab.append(accept, span);
+    box.append(warn, lab);
+  }
+  const buttons = document.createElement('div');
+  buttons.className = 'buttons';
+  const cancel = document.createElement('button');
+  cancel.className = 'btn small';
+  cancel.textContent = t('umod.cancel');
+  cancel.onclick = () => { box.hidden = true; };
+  const go = document.createElement('button');
+  go.className = 'btn small primary';
+  go.textContent = t('umod.install');
+  go.disabled = !!accept;
+  if (accept) accept.onchange = () => { go.disabled = !accept.checked; };
+  go.onclick = () => umodInstall(job.id, !!(accept && accept.checked), r.name);
+  buttons.append(cancel, go);
+  box.append(buttons);
+  box.hidden = false;
+}
+
+async function umodInstall(inspection, accept, name) {
+  if (state.busyJob) { toast(t('modules.busy'), true); return; }
+  const bar = $('#umodProgress');
+  const phase = $('#umodPhase');
+  $('#umodReview').hidden = true;
+  umodBusy(true);
+  try {
+    let job = await api('/api/modules/user/install', { inspection, accept });
+    job = await followJob(job, j => { setBar(bar, j.progress); phase.textContent = `${j.title}: ${phaseText(j)}`; });
+    if (job.state === 'done') { phase.textContent = ''; $('#umodName').value = ''; toast(t('umod.installed', { name })); }
+    else phase.textContent = job.state === 'error' ? phaseText(job) : t('phase.cancelled');
+  } catch (e) {
+    phase.textContent = e.message;
+  } finally {
+    setTimeout(() => { bar.hidden = true; }, 800);
+    umodBusy(false);
+    await umodChanged();
+  }
+}
+
+async function umodUninstall(name, installed) {
+  if (state.busyJob) { toast(t('modules.busy'), true); return; }
+  if (installed && !confirm(t('umod.confirm_uninstall', { name }))) return;
+  const phase = $('#umodPhase');
+  umodBusy(true);
+  try {
+    let job = await api('/api/modules/user/uninstall', { name });
+    job = await followJob(job, j => { phase.textContent = phaseText(j); });
+    if (job.state === 'done') { phase.textContent = ''; toast(t('umod.removed', { name })); }
+    else phase.textContent = job.error || t('phase.cancelled');
+  } catch (e) {
+    phase.textContent = e.message;
+  } finally {
+    umodBusy(false);
+    await umodChanged();
+  }
+}
+
+async function umodChanged() {
+  try { await refreshStatus(); } catch (e) { /* shown by the next action */ }
+  renderModules();
+  pollRefresh();
+  if (window.Analysis) window.Analysis.modulesChanged();
 }
 
 async function installFromManager(ids, upgrade, reinstall = false) {
   if (state.busyJob) { toast(t('modules.busy'), true); return; }
-  $$('#modulesTable button, #btnUpdateAll, #btnRefresh, #btnVerify').forEach(b => { b.disabled = true; });
+  $$('#modulesTable button, #btnUpdateAll, #btnRefresh, #btnVerify, #userModules button').forEach(b => { b.disabled = true; });
   const bar = $('#modulesProgress');
   try {
     const job = await runInstall(ids, upgrade, j => { setBar(bar, j.progress); $('#modulesPhase').textContent = `${j.title}: ${phaseText(j)}`; }, reinstall);
@@ -1779,6 +2028,13 @@ function openAbout() {
     li.append(b, lic, document.createTextNode(m.cite ? ' — ' + m.cite : ''));
     ul.append(li);
   });
+  (state.status?.user_modules || []).forEach(m => {           // added by the user: third-party
+    const li = document.createElement('li');
+    const b = document.createElement('b');
+    b.textContent = m.name;
+    li.append(b, licBadge(m.license, m.status), document.createTextNode(` (${t('umod.title')})` + (m.cite ? ' — ' + m.cite : '')));
+    ul.append(li);
+  });
   box.append(ul);
   $('#aboutDialog').showModal();
 }
@@ -1817,6 +2073,8 @@ function bindGlobal() {
   $('#btnRestart').onclick = restartService;
   $('#btnRefresh').onclick = async () => { await api('/api/modules/refresh', {}); await refreshStatus(); renderModules(); pollRefresh(); };
   $('#btnVerify').onclick = async () => { await api('/api/modules/verify', {}); await refreshStatus(); renderModules(); pollRefresh(); };
+  $('#umodCheck').onclick = () => umodInspect($('#umodName').value);
+  $('#umodName').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); umodInspect($('#umodName').value); } };
   $('#btnUpdateAll').onclick = () => installFromManager(state.status.modules.filter(m => m.installed && m.update).map(m => m.id), true);
   $$('dialog [data-close]').forEach(b => { b.onclick = () => b.closest('dialog').close(); });
 }

@@ -42,7 +42,8 @@ scrive un `REFERENCES.txt` con esattamente i riferimenti necessari.
 - Density curves (KDE): Gaussian kernel with Silverman's rule-of-thumb bandwidth — Silverman, B. W. *Density Estimation for Statistics and Data Analysis*. Chapman & Hall (1986).
 - Confidence and prediction bands of non-linear fits: first-order (delta-method) propagation of the parameter covariance, var = J·C·Jᵀ (J by central differences), with Student's t quantile; prediction bands add the residual (or measurement) variance. See e.g. Seber, G. A. F. & Wild, C. J. *Nonlinear Regression*. Wiley (1989).
 - Curve fits: ordinary least squares (`numpy.polyfit`); exponential, logarithmic and power-law models are fitted as linear models of the transformed variables, and R² is computed on the original scale.
-- JCAMP-DX reader (AFFN form): McDonald, R. S. & Wilks, P. A. JCAMP-DX: A Standard Form for Exchange of Infrared Spectra in Computer Readable Form. *Applied Spectroscopy* 42(1), 151–162 (1988).
+- JCAMP-DX reader (AFFN, PAC and the compressed SQZ, DIF and DUP forms of XYDATA): McDonald, R. S. & Wilks, P. A. JCAMP-DX: A Standard Form for Exchange of Infrared Spectra in Computer Readable Form. *Applied Spectroscopy* 42(1), 151–162 (1988).
+- Licence check of the modules you add from PyPI: the SPDX License List (https://spdx.org/licenses/), the OSI-approved licences (https://opensource.org/licenses), PEP 639 (`License-Expression`) and the `License ::` trove classifiers. It reads the package metadata and is not legal advice.
 
 ## Methods of the built-in analyses / Metodi delle analisi incluse
 

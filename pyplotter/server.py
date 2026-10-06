@@ -21,7 +21,7 @@ import traceback
 from urllib.parse import quote, unquote, urlsplit
 
 from . import __version__, catalog
-from .modules import MissingModules, ModuleManager, clean_appledouble
+from .modules import MissingModules, MissingUserModules, ModuleManager, clean_appledouble
 
 ROOT = Path(__file__).resolve().parent.parent
 WEB = ROOT / 'web'
@@ -281,7 +281,8 @@ class App:
             raise ApiError(_plugin_message(exc, plugin), 422, 'analysis')
         out = {'plugin': {'id': plugin['id'], 'name': plugin['name'], 'source': plugin['source'], 'file': plugin['file']},
                'params': values, 'summary': res.summary, 'tables': res.tables, 'texts': res.texts,
-               'references': list(dict.fromkeys(res.refs)), 'dataset': None, 'plot': res.plot}
+               'references': list(dict.fromkeys(res.refs + self.modules.user_citations(plugin['requires']))),
+               'dataset': None, 'plot': res.plot}
         from .readers import tidy
         source = {'analysis': plugin['id'], 'params': values, 'parent': ds['source'], 'spec': spec, 'lang': lang}
         refs = ds.get('references', []) + out['references']
@@ -470,6 +471,8 @@ def make_handler(app, port):
                 return      # the page cancelled the request (e.g. a newer render replaced it): nothing to answer
             if isinstance(exc, MissingModules):
                 return self._json({'error': str(exc), 'code': 'missing_modules', 'modules': exc.ids}, 409)
+            if isinstance(exc, MissingUserModules):
+                return self._json({'error': str(exc), 'code': 'missing_user_modules', 'modules': exc.names}, 409)
             if isinstance(exc, ApiError):
                 self._log_error(exc.status, f'{exc.code}: {exc}')
                 return self._json({'error': str(exc), 'code': exc.code, **exc.extra}, exc.status)
@@ -584,6 +587,8 @@ def make_handler(app, port):
                     job = app.modules.start_install(ids, upgrade=bool(body.get('upgrade')),
                                                     reinstall=bool(body.get('reinstall')))
                     return self._json(job.to_dict())
+                if path.startswith('/api/modules/user/'):
+                    return self._json(user_module_action(app.modules, path.rsplit('/', 1)[-1], body))
                 if path.startswith('/api/jobs/') and path.endswith('/cancel'):
                     job = app.modules.job(path.split('/')[3])
                     if job:
@@ -646,6 +651,23 @@ def _open(url):
         webbrowser.open(url)
     except Exception:
         pass
+
+
+def user_module_action(modules, action, body):
+    """Modules the user adds from PyPI: inspect (licences first), install, uninstall, cite."""
+    try:
+        if action == 'inspect':
+            return modules.start_inspect(body.get('name')).to_dict()
+        if action == 'install':
+            return modules.start_user_install(body.get('inspection'), accept=body.get('accept') is True).to_dict()
+        if action == 'uninstall':
+            return modules.start_uninstall(body.get('name')).to_dict()
+        if action == 'cite':
+            modules.set_user_cite(body.get('name'), body.get('cite'))
+            return modules.status()
+    except ValueError as exc:
+        raise ApiError(str(exc), 400, 'user_module')
+    raise ApiError('Not found', 404, 'not_found')
 
 
 def _plugin_message(exc, plugin):

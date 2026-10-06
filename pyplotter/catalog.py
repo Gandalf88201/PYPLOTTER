@@ -85,7 +85,11 @@ KINDS = {
     'hist2d':     {'group': 'map',   'inputs': ['x', 'y'], 'requires': []},
     'corr':       {'group': 'multi', 'inputs': ['y'], 'requires': []},
     'pairplot':   {'group': 'multi', 'inputs': ['y', 'hue'], 'requires': []},
+    'surface3d':  {'group': '3d',    'inputs': ['x', 'y', 'z'], 'requires': []},
+    'scatter3d':  {'group': '3d',    'inputs': ['x', 'y', 'z', 'hue'], 'requires': []},
+    'waterfall':  {'group': '3d',    'inputs': ['x', 'y'], 'requires': []},
 }
+THREE_D_KINDS = {'surface3d', 'scatter3d', 'waterfall'}
 TWIN_KINDS = {'line', 'scatter', 'step', 'errorbar'}
 
 # ---------------------------------------------------------------- styles, palettes, colormaps

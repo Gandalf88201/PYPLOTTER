@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 
 from . import plotting
-from .catalog import PALETTES
+from .catalog import PALETTES, THREE_D_KINDS
 
 HERE = Path(__file__).resolve().parent
 
@@ -124,7 +124,8 @@ def script_bundle(df, spec, name='figure', modules=(), extra_refs=(), source=Non
 
 # ------------------------------------------------------------------ Plotly (interactive HTML)
 PLOTLY_KINDS = {'line', 'scatter', 'step', 'area', 'errorbar', 'regression', 'bar', 'barh', 'hist', 'box',
-                'violin', 'heatmap', 'corr', 'contour', 'pie', 'kde', 'ecdf', 'stem', 'polar', 'hexbin', 'hist2d'}
+                'violin', 'heatmap', 'corr', 'contour', 'pie', 'kde', 'ecdf', 'stem', 'polar', 'hexbin', 'hist2d',
+                'surface3d', 'scatter3d', 'waterfall'}
 
 
 def plotly_html(df, spec, overlay_data=None, extra_data=None):
@@ -235,6 +236,35 @@ def plotly_html(df, spec, overlay_data=None, extra_data=None):
     elif kind in ('hexbin', 'hist2d'):
         x, y, _ = d.xy(ycols[0])
         fig.add_trace(go.Histogram2d(x=x, y=y, colorscale=cscale, nbinsx=int(st['gridsize']), nbinsy=int(st['gridsize'])))
+    elif kind == 'surface3d':
+        grid = plotting._grid_from_xyz(d)
+        if grid is not None and grid.shape[0] > 1 and grid.shape[1] > 1:
+            fig.add_trace(go.Surface(z=grid.to_numpy(dtype=float), x=list(grid.columns), y=list(grid.index),
+                                     colorscale=cscale, colorbar={'title': spec['z']}))
+        else:
+            frame = df[[spec['x'], ycols[0], spec['z']]].apply(pd.to_numeric, errors='coerce').dropna()
+            fig.add_trace(go.Mesh3d(x=frame.iloc[:, 0], y=frame.iloc[:, 1], z=frame.iloc[:, 2], intensity=frame.iloc[:, 2],
+                                    colorscale=cscale, colorbar={'title': spec['z']}))
+    elif kind == 'scatter3d':
+        for ycol in ycols:
+            for g, sub in d.groups():
+                x, y, ok = d.xy(ycol, sub)
+                key = ycol if g is None else f'{ycol}::{g}'
+                c = color(key)
+                fig.add_trace(go.Scatter3d(x=x, y=y, z=d.numeric(spec['z'], sub[ok]).to_numpy(),
+                                           name=label(key, plotting._series_label(ycol, g, len(ycols))),
+                                           mode='lines' if st['connect'] else 'markers',
+                                           line={'color': c, 'width': st['linewidth'] * 2},
+                                           marker={'color': c, 'size': st['markersize']}))
+    elif kind == 'waterfall':
+        try:
+            depth = [float(str(c).replace(',', '.')) for c in ycols]
+        except ValueError:
+            depth = list(range(len(ycols)))
+        for pos, ycol in zip(depth, ycols):
+            x, y, _ = d.xy(ycol)
+            fig.add_trace(go.Scatter3d(x=x, y=np.full(len(x), pos), z=y, mode='lines', name=label(ycol, ycol),
+                                       line={'color': color(ycol), 'width': st['linewidth'] * 2}))
     elif kind == 'pie':
         table, _ = plotting._aggregate(d, ycols[:1])
         labels = [str(c) for c in table.index]
@@ -303,6 +333,20 @@ def plotly_html(df, spec, overlay_data=None, extra_data=None):
         layout['yaxis2'] = {'title': t['y2label'] or spec['y2'][0], 'overlaying': 'y', 'side': 'right'}
     if kind == 'barh':
         layout['xaxis']['title'], layout['yaxis']['title'] = layout['yaxis']['title'], layout['xaxis']['title']
+    if kind in THREE_D_KINDS:
+        auto_z = spec['z']
+        if kind == 'waterfall':                       # depth = the Y columns, height = their values
+            auto_y, auto_z = '', (ycols[0] if len(ycols) == 1 else '')
+        scene = {'xaxis': {'title': t['xlabel'] or auto_x}, 'yaxis': {'title': t['ylabel'] or auto_y},
+                 'zaxis': {'title': t['zlabel'] or auto_z}}
+        for axis, lo, hi in (('xaxis', a['xmin'], a['xmax']), ('yaxis', a['ymin'], a['ymax']), ('zaxis', a['zmin'], a['zmax'])):
+            lo, hi = plotting._num(lo), plotting._num(hi)
+            if lo is not None and hi is not None:
+                scene[axis]['range'] = [lo, hi]
+        layout['scene'] = scene
+        del layout['xaxis'], layout['yaxis']
+        fig.update_layout(**layout)
+        return fig.to_html(include_plotlyjs=True, full_html=True, config={'toImageButtonOptions': {'format': 'png'}}).encode('utf-8')
     fig.update_layout(**layout)
     for axis, lo, hi in (('xaxis', a['xmin'], a['xmax']), ('yaxis', a['ymin'], a['ymax'])):
         lo, hi = plotting._num(lo), plotting._num(hi)

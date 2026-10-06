@@ -31,14 +31,17 @@ printed in the terminal window. Options:
   encoding detected automatically), compressed `.gz/.bz2/.xz`, ZIP archives, Excel (`.xlsx`, `.xls`),
   LibreOffice `.ods`, JSON/JSON Lines, Parquet, Feather/Arrow, ORC, HDF5, NetCDF, MATLAB `.mat`
   (also v7.3), NumPy `.npy/.npz`, FITS, SPSS, Stata, SAS, XML, HTML tables, SQLite and
-  JCAMP-DX spectra. Multi-table files (sheets, datasets, variables) show a table picker.
+  JCAMP-DX spectra (`.jdx`, `.dx`; plain or compressed, as exported by instruments and NIST). Multi-table files (sheets, datasets, variables) show a table picker.
 - **Suggests the right plot** from the column types: time series → line, ordered X → line,
   point clouds → scatter or hexbin, categories → bars/box/violin, X-Y-Z grids → contour/heatmap,
   error columns (`err`, `std`, `sigma`, `errore`, …) → error bars, many variables → correlation.
-- **24 plot types**: line, scatter, step, area, error bars (bars or band), fit with equation and R²
+- **27 plot types**: line, scatter, step, area, error bars (bars or band), fit with equation and R²
   (linear, polynomial, exponential, logarithmic, power), stem, polar, bars (grouped/stacked,
   mean ± std), horizontal bars, box, violin, strip, swarm, pie, histogram, density (KDE), ECDF,
   heatmap, contour, hexbin, 2D histogram, correlation matrix, pair plot; secondary Y axis.
+  **3D**: surface z(x, y) (from a grid or scattered points; wire frame optional), 3D scatter or line,
+  and waterfall of spectra (one curve per column, at the depth given by the column name — a time,
+  a temperature — or by its position), with view angles and z limits; also as interactive HTML.
 - **Publication-ready output**: exact physical size (journal column presets in mm/cm/in),
   PNG/TIFF/JPEG at 150–1200 DPI, vector PDF/SVG/EPS with editable text (TrueType fonts embedded),
   interactive HTML (Plotly), and a **Python script** ZIP (data + settings + script + references)
@@ -106,14 +109,26 @@ printed in the terminal window. Options:
   module is also **imported once in a separate Python** (at start, after installs, or with *Check
   imports*): a module that pip lists but that cannot be loaded is shown in red with its error and a
   *Reinstall* button.
+- **Your modules from PyPI** (*Modules › Your modules*): type the name of any package on PyPI and
+  press *Check*. PyPlotter asks pip what it would install (a dry run, nothing is changed) and shows the
+  package and every dependency with its **licence**. Open-source (OSI-approved) licences install
+  normally; a licence that is not OSI-approved, proprietary or not recognised is marked and needs a
+  tick in *“I have read the licence terms…”* before *Install* is enabled. Only plain package names are
+  accepted (no versions, URLs, paths or pip options), and the version shown is the one installed.
+  Your modules are listed with their licence, the packages installed with them, an optional reference
+  to cite (shown with the results of analyses whose plugin lists the module in `requires`) and an
+  *Uninstall* button (refused when another package needs the module). They are recorded in
+  `~/.pyplotter/user-modules.json`: in a new environment they are shown as *not installed* with
+  *Install again*. These are **third-party code** that PyPlotter does not check: install only what
+  you trust. The licence check reads the package metadata; it is a help, not legal advice.
 
 ## Privacy and security
 
 Everything runs on your computer. The service listens on 127.0.0.1 only, every request needs the
 token embedded in the page (a random value kept in `~/.pyplotter/token`, readable only by you, so open
 tabs keep working after a restart), and uploaded files are kept in a private temporary folder
-that is deleted when PyPlotter stops. Only package installs (pip) and the version check contact
-the internet (PyPI). Analysis plugins are Python code running with your rights: install only plugins
+that is deleted when PyPlotter stops. Only package installs and checks (pip) and the version check
+contact the internet (PyPI). Analysis plugins are Python code running with your rights: install only plugins
 you trust.
 
 ## Licences and citations
@@ -151,10 +166,12 @@ con un solo pulsante e una barra di avanzamento. Tieni aperta la finestra del te
 **Funzioni principali.**
 - Apre CSV/TXT/DAT (riconosce da solo separatore `;`, virgola decimale, intestazione, righe di
   commento e codifica), Excel, ODS, JSON, Parquet, HDF5, NetCDF, MATLAB, NumPy, FITS, SPSS, Stata,
-  SAS, XML, HTML, SQLite, spettri JCAMP-DX, archivi ZIP e file compressi.
+  SAS, XML, HTML, SQLite, spettri JCAMP-DX (`.jdx`, `.dx`, anche compressi), archivi ZIP e file compressi.
 - Suggerisce il grafico adatto in base ai tipi di colonna (serie temporali, X ordinata, nuvole di
   punti, categorie, griglie X-Y-Z, colonne di errore come `errore` o `dev std`, molte variabili).
-- 24 tipi di grafico, asse Y secondario, fit con equazione e R².
+- 27 tipi di grafico, asse Y secondario, fit con equazione e R². In **3D**: superficie z(x, y) (da una
+  griglia o da punti sparsi, anche solo reticolo), dispersione o linea 3D e cascata di spettri (una curva
+  per colonna, alla profondità data dal nome della colonna o dalla sua posizione), con angoli di vista.
 - Esportazione alle dimensioni esatte delle colonne delle riviste: PNG/TIFF/JPEG fino a 1200 DPI,
   PDF/SVG/EPS vettoriali con testo modificabile, HTML interattivo e uno ZIP con script Python che
   ricrea la figura, completo dei riferimenti da citare.
@@ -205,6 +222,17 @@ con un solo pulsante e una barra di avanzamento. Tieni aperta la finestra del te
   Ogni modulo installato viene anche **importato in un Python separato** (all'avvio, dopo le
   installazioni o con *Verifica import*): un modulo che pip elenca ma che non si carica appare in rosso
   con il suo errore e il pulsante *Reinstalla*.
+- **I tuoi moduli da PyPI** (*Moduli › I tuoi moduli*): scrivi il nome di un pacchetto su PyPI e premi
+  *Controlla*. PyPlotter chiede a pip cosa installerebbe (una prova, senza modifiche) e mostra il
+  pacchetto e ogni dipendenza con la sua **licenza**. Le licenze open source (approvate OSI) si
+  installano normalmente; una licenza non approvata OSI, proprietaria o non riconosciuta è segnalata e
+  serve la spunta *«Ho letto le condizioni di licenza…»* per abilitare *Installa*. Si accettano solo
+  nomi di pacchetti (niente versioni, URL, percorsi od opzioni di pip). I tuoi moduli sono elencati
+  con licenza, pacchetti installati con essi, un riferimento da citare (facoltativo) e il pulsante
+  *Disinstalla*; sono registrati in `~/.pyplotter/user-modules.json`, così in un nuovo ambiente
+  compaiono come *non installati* con *Installa di nuovo*. Sono **codice di terze parti** non
+  controllato da PyPlotter: installa solo ciò di cui ti fidi. Il controllo della licenza legge i
+  metadati del pacchetto: è un aiuto, non una consulenza legale.
 
 **Licenze e citazioni.** PyPlotter è software libero (MIT) e usa solo pacchetti open source scaricati
 da PyPI; non include codice di terze parti. Le licenze sono in

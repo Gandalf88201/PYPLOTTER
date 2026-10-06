@@ -6,6 +6,11 @@ At each start the latest versions are fetched from PyPI in the background and ca
 ``python -m pip`` in this interpreter's environment and report a single progress value.
 Installed modules are also imported once in a separate Python (at start and after every
 install), so a package that pip lists but that cannot be loaded is reported as broken.
+
+Besides the registry, the user can add any package from PyPI ("your modules"): its licence and the
+licences of everything pip would install with it are shown first, a licence that is not
+OSI-approved needs an explicit confirmation, and the choice is recorded in
+~/.pyplotter/user-modules.json (so the modules can be installed again in a new environment).
 """
 import importlib
 import importlib.metadata as metadata
@@ -22,6 +27,8 @@ import time
 import urllib.request
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+
+from . import licenses
 
 REGISTRY_FILE = Path(__file__).with_name('registry.json')
 STATE_DIR = Path(os.environ.get('PYPLOTTER_HOME') or Path.home() / '.pyplotter')
@@ -40,12 +47,92 @@ except BaseException as exc:
 '''
 
 
+# A plain PyPI project name (PEP 508): no version, extras, URL, path or pip option can get through.
+PACKAGE_NAME = re.compile(r'[A-Za-z0-9](?:[A-Za-z0-9._-]{0,98}[A-Za-z0-9])?')
+USER_SCHEMA = 'pyplotter-user-modules/1'
+
+
 class MissingModules(Exception):
     """Raised when an action needs registry modules that are not installed."""
 
     def __init__(self, ids):
         self.ids = list(ids)
         super().__init__('Missing modules: ' + ', '.join(self.ids))
+
+
+class MissingUserModules(Exception):
+    """Raised when an action needs modules the user added that are not installed (e.g. a new environment)."""
+
+    def __init__(self, names):
+        self.names = list(names)
+        super().__init__('Not installed: ' + ', '.join(self.names) + '. Install them again from '
+                         'Modules › Your modules.')
+
+
+def canonical(name):
+    """PEP 503 normalised project name (Scikit_Learn → scikit-learn)."""
+    return re.sub(r'[-_.]+', '-', str(name)).lower()
+
+
+def check_package_name(name):
+    """The name as typed, if it is a plain PyPI project name; ValueError otherwise."""
+    name = str(name or '').strip()
+    if not PACKAGE_NAME.fullmatch(name):
+        raise ValueError('Type only the name of a package on PyPI (letters, digits, “-”, “_”, “.”), without '
+                         'a version, URL, path or pip option.')
+    return name
+
+
+def dist_info(name):
+    """The installed distribution: {'name', 'version', 'license', 'status', 'summary', 'imports'}, or None."""
+    try:
+        dist = metadata.distribution(name)
+        meta = dist.metadata
+    except Exception:          # not installed, or broken metadata of a half-installed package
+        return None
+    return {'name': meta['Name'] or name, 'version': dist.version, **licenses.from_metadata(meta),
+            'summary': meta.get('Summary') or '', 'imports': import_names(dist, name)}
+
+
+def import_names(dist, name):
+    """Top-level modules a distribution installs (what ``import`` takes), best guess first."""
+    try:
+        top = (dist.read_text('top_level.txt') or '').split()
+    except Exception:
+        top = []
+    if not top:
+        found = set()
+        for f in dist.files or []:
+            parts = f.parts
+            if not parts or parts[0].endswith(('.dist-info', '.egg-info', '.data')) or parts[0] in ('..', '__pycache__'):
+                continue
+            if len(parts) == 1 and parts[0].endswith('.py'):
+                found.add(parts[0][:-3])
+            elif len(parts) == 2 and parts[1] == '__init__.py':
+                found.add(parts[0])
+        top = sorted(found)
+    guess = canonical(name).replace('-', '_')
+    top = [t for t in dict.fromkeys(top) if t.isidentifier() and not t.startswith('_')]
+    top.sort(key=lambda t: t != guess)
+    return top or [guess]
+
+
+def dependents(name):
+    """Names of the installed distributions that need `name` (optional extras not counted)."""
+    target, out = canonical(name), set()
+    for dist in metadata.distributions():
+        try:
+            own, reqs = canonical(dist.metadata['Name'] or ''), dist.requires or []
+        except Exception:
+            continue
+        if own == target:
+            continue
+        for r in reqs:
+            req, _, marker = r.partition(';')
+            m = re.match(r'\s*([A-Za-z0-9._-]+)', req)
+            if m and canonical(m.group(1)) == target and 'extra' not in marker:
+                out.add(dist.metadata['Name'])
+    return sorted(out, key=str.lower)
 
 
 def load_registry(path=REGISTRY_FILE):
@@ -253,6 +340,9 @@ class ModuleManager:
         self._check_gen = 0
         self._check_again = False
         self._check_lock = threading.Lock()
+        self.user_file = self.state_dir / 'user-modules.json'
+        self.user = self._read_user()          # canonical name -> record (see _install_user)
+        self.registry_dists = {canonical(m['pip']): m['id'] for m in self.modules}
 
     # ------------------------------------------------------------ status
     def _read_cache(self):
@@ -276,7 +366,7 @@ class ModuleManager:
         try:
             data = json.loads(self.check_file.read_text(encoding='utf-8'))
             if data.get('python') == self.python and isinstance(data.get('checks'), dict):
-                return {k: {**v, 'gen': 0} for k, v in data['checks'].items() if k in self.by_id}
+                return {k: {**v, 'gen': 0} for k, v in data['checks'].items() if k in self.by_id or k.startswith('user:')}
         except Exception:
             pass
         return {}
@@ -297,13 +387,29 @@ class ModuleManager:
         return installed_version(m['pip'])
 
     def missing(self, ids):
-        return [i for i in dict.fromkeys(ids) if i in self.by_id and not self.installed(i)]
+        """Registry ids that are not installed, and names of the user's modules that are not installed."""
+        out = []
+        for i in dict.fromkeys(ids):
+            if i in self.by_id:
+                if not self.installed(i):
+                    out.append(i)
+            elif canonical(i) in self.user and not installed_version(self.user[canonical(i)]['pip']):
+                out.append(i)
+        return out
 
     def require(self, ids):
         missing = self.missing(ids)
+        known = [i for i in missing if i in self.by_id]
+        if known:
+            raise MissingModules(known)
         if missing:
-            raise MissingModules(missing)
+            raise MissingUserModules(missing)
         importlib.invalidate_caches()
+
+    def user_citations(self, ids):
+        """The references the user wrote for their modules among ids (e.g. a plugin's "requires")."""
+        return [self.user[canonical(i)]['cite'] for i in dict.fromkeys(ids)
+                if canonical(i) in self.user and self.user[canonical(i)].get('cite')]
 
     def core_ids(self):
         return [m['id'] for m in self.modules if m.get('core')]
@@ -327,7 +433,8 @@ class ModuleManager:
                 'works': check['ok'] if check else None,      # None: not checked yet
                 'import_error': check['error'] if check else '',
             })
-        return {'modules': rows, 'refresh': dict(self.refresh_state), 'checks': dict(self.check_state),
+        return {'modules': rows, 'user_modules': self.user_status(), 'refresh': dict(self.refresh_state),
+                'checks': dict(self.check_state), 'online': self.online and self.refresh_state['state'] != 'offline',
                 'core_ready': all(r['installed'] and not r['outdated'] for r in rows if r['core']),
                 'restart_required': bool(self.restart_required),
                 'python': sys.version.split()[0], 'executable': self.python}
@@ -361,13 +468,21 @@ class ModuleManager:
             error=errors[0] if errors and not versions else '')
 
     # ------------------------------------------------------------ import check (each start, after installs)
+    def _check_targets(self):
+        """(check key, distribution, module to import) of every registry module and user module."""
+        out = [(m['id'], m['pip'], m.get('check') or m['import']) for m in self.modules]
+        out += [('user:' + k, r['pip'], (r.get('imports') or [k.replace('-', '_')])[0]) for k, r in self.user.items()]
+        return out
+
     def check_import(self, mid):
         """Import one module in a fresh Python. Returns (ok, error message)."""
-        m = self.by_id[mid]
+        name = next((t[2] for t in self._check_targets() if t[0] == mid), None)
+        if name is None:
+            return False, f'Unknown module {mid}.'
         env = dict(os.environ, MPLBACKEND='Agg', PYTHONUNBUFFERED='1')
         flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
         try:
-            out = subprocess.run([self.python, '-c', IMPORT_CHECK, m.get('check') or m['import']],
+            out = subprocess.run([self.python, '-c', IMPORT_CHECK, name],
                                  capture_output=True, text=True, encoding='utf-8', errors='replace', env=env,
                                  cwd=tempfile.gettempdir(), timeout=IMPORT_TIMEOUT, creationflags=flags)
         except subprocess.TimeoutExpired:
@@ -379,7 +494,7 @@ class ModuleManager:
         lines = [l for l in (out.stdout.strip() or out.stderr.strip()).splitlines() if l.strip()]
         if lines:
             return False, lines[-1][:500]
-        return False, f'Python stopped while importing {m["import"]} (exit code {out.returncode}).'
+        return False, f'Python stopped while importing {name} (exit code {out.returncode}).'
 
     def verify_async(self, force=False):
         """Check in the background that installed modules import. force: check again even if
@@ -397,12 +512,12 @@ class ModuleManager:
         while True:
             gen = self._check_gen
             todo = []
-            for m in self.modules:
-                version = installed_version(m['pip'])
-                old = self.checks.get(m['id'])
+            for key, dist, _ in self._check_targets():
+                version = installed_version(dist)
+                old = self.checks.get(key)
                 # New or changed version, a forced check, or a module that failed before (it may be fixed now).
                 if version and not (old and old['version'] == version and old['gen'] >= gen and old['ok']):
-                    todo.append((m['id'], version))
+                    todo.append((key, version))
 
             def one(item):
                 ok, error = self.check_import(item[0])
@@ -497,12 +612,11 @@ class ModuleManager:
         import sysconfig
         return Path(sysconfig.get_path('stdlib'), 'EXTERNALLY-MANAGED').exists()
 
-    def _install(self, job, ids, upgrade, reinstall=False):
+    def _prepare_pip(self, job):
         if self.externally_managed():
             raise RuntimeError(f'{self.python} is managed by the system or Homebrew and cannot receive packages. '
                                'Start PyPlotter with start_pyplotter.command / .bat or start_pyplotter.py, '
                                'which use the private .venv environment.')
-        before = {i: self.installed(i) for i in ids}
         job.set(0.01, phase='preparing')
         pipv = self.pip_version()
         if not pipv:
@@ -510,22 +624,30 @@ class ModuleManager:
         if pipv < PIP_MIN:
             if self._pip(job, ['install', '--upgrade', 'pip']) != 0:
                 raise RuntimeError(_pip_error(job.log, 'Updating pip failed.'))
+
+    def _dry_run(self, job, args):
+        """What pip would install for `args`: the entries of its installation report (with metadata)."""
+        fd, report = tempfile.mkstemp(suffix='.json', prefix='pyplotter-pip-')
+        os.close(fd)
+        try:
+            if self._pip(job, ['install', '--dry-run', '--quiet', '--report', report] + args) != 0:
+                raise RuntimeError(_pip_error(job.log, 'pip could not resolve the packages.'))
+            try:
+                return json.loads(Path(report).read_text(encoding='utf-8')).get('install', [])
+            except Exception:
+                return []
+        finally:
+            os.unlink(report)
+
+    def _install(self, job, ids, upgrade, reinstall=False):
+        before = {i: self.installed(i) for i in ids}
+        self._prepare_pip(job)
         job.set(0.05, phase='resolving')
         specs = self._specs(ids, upgrade, reinstall)
         extra = ['--upgrade'] if upgrade else []
         if reinstall:
             extra += ['--force-reinstall', '--no-deps']
-        fd, report = tempfile.mkstemp(suffix='.json', prefix='pyplotter-pip-')
-        os.close(fd)
-        try:
-            if self._pip(job, ['install', '--dry-run', '--quiet', '--report', report] + extra + specs) != 0:
-                raise RuntimeError(_pip_error(job.log, 'pip could not resolve the packages.'))
-            try:
-                planned = json.loads(Path(report).read_text(encoding='utf-8')).get('install', [])
-            except Exception:
-                planned = []
-        finally:
-            os.unlink(report)
+        planned = self._dry_run(job, extra + specs)
         names = [p.get('metadata', {}).get('name', '?') for p in planned]
         job.result['planned'] = names
         job.set(0.15, phase='downloading' if names else 'installing')
@@ -548,6 +670,174 @@ class ModuleManager:
         if missing:
             raise RuntimeError('Not installed: ' + ', '.join(missing))
         job.set(1.0, phase='done', detail='')
+
+
+    # ------------------------------------------------------------ the user's own modules (from PyPI)
+    def _read_user(self):
+        try:
+            data = json.loads(self.user_file.read_text(encoding='utf-8'))
+            if not str(data.get('schema', '')).startswith('pyplotter-user-modules/'):
+                return {}
+            # Names are checked again: the file must not be able to pass options to pip.
+            return {canonical(r['pip']): r for r in data.get('modules', [])
+                    if isinstance(r, dict) and PACKAGE_NAME.fullmatch(str(r.get('pip', '')))}
+        except Exception:
+            return {}
+
+    def _write_user(self):
+        self.state_dir.mkdir(parents=True, exist_ok=True)
+        tmp = self.user_file.with_suffix('.tmp')
+        tmp.write_text(json.dumps({'schema': USER_SCHEMA, 'modules': sorted(self.user.values(), key=lambda r: canonical(r['pip']))},
+                                  indent=1, ensure_ascii=False), encoding='utf-8')
+        tmp.replace(self.user_file)
+
+    def user_status(self):
+        rows = []
+        for key, r in sorted(self.user.items()):
+            inst = installed_version(r['pip'])
+            check = self.checks.get('user:' + key)
+            if not (inst and check and check['version'] == inst):
+                check = None
+            rows.append({'name': r['pip'], 'key': key, 'installed': inst, 'version': r.get('version', ''),
+                         'license': r.get('license', ''), 'status': r.get('status', 'unknown'),
+                         'accepted': bool(r.get('accepted')), 'summary': r.get('summary', ''),
+                         'imports': r.get('imports', []), 'packages': r.get('packages', []), 'cite': r.get('cite', ''),
+                         'added': r.get('added'), 'restart': 'user:' + key in self.restart_required,
+                         'works': check['ok'] if check else None, 'import_error': check['error'] if check else ''})
+        return rows
+
+    def _new_job(self, kind, title, target, *args):
+        job = Job(kind, title)
+        self.jobs[job.id] = job
+
+        def run():
+            try:
+                target(job, *args)
+                job.state = 'done'
+            except InterruptedError:
+                job.state = 'cancelled'
+            except Exception as exc:
+                job.error = str(exc) or exc.__class__.__name__
+                job.state = 'error'
+        threading.Thread(target=run, name=f'{kind}-{job.id}', daemon=True).start()
+        return job
+
+    def start_inspect(self, name):
+        """Background dry run: the package, its licence and every package pip would install with it."""
+        name = check_package_name(name)
+        if canonical(name) in self.registry_dists:
+            raise ValueError(f'“{name}” is already in PyPlotter’s list: install it there.')
+        if not self.online:
+            raise ValueError('Adding modules needs the internet (PyPlotter was started offline).')
+        return self._new_job('inspect', name, self._inspect, name)
+
+    def _inspect(self, job, name):
+        self._prepare_pip(job)
+        job.set(0.3, phase='resolving', detail=name)
+        planned = self._dry_run(job, ['--upgrade-strategy', 'only-if-needed', name])
+        packages, target = [], None
+        for entry in planned:
+            meta = entry.get('metadata', {})
+            row = {'name': meta.get('name', '?'), 'version': meta.get('version', ''), **licenses.from_metadata(meta),
+                   'summary': (meta.get('summary') or '')[:200], 'requested': bool(entry.get('requested'))}
+            packages.append(row)
+            if canonical(row['name']) == canonical(name):
+                target = row
+        if target is None:                     # already installed (e.g. as a dependency): nothing to download
+            info = dist_info(name)
+            if info is None:
+                raise RuntimeError(f'pip found nothing to install for “{name}”.')
+            target = {k: info[k] for k in ('name', 'version', 'license', 'status', 'summary')} | {'requested': True,
+                                                                                                    'installed': True}
+            packages.insert(0, target)
+        packages.sort(key=lambda r: (not r['requested'], r['name'].lower()))
+        job.result = {'name': target['name'], 'version': target['version'], 'license': target['license'],
+                      'status': target['status'], 'summary': target['summary'], 'packages': packages,
+                      'needs_confirm': any(r['status'] != 'osi' for r in packages),
+                      'already': bool(target.get('installed'))}
+        job.set(1.0, phase='done', detail='')
+
+    def start_user_install(self, inspection, accept=False):
+        """Install what an inspection showed, at the version shown. A licence that is not OSI-approved
+        (or not recognised) in the package or in anything installed with it needs accept=True."""
+        job = self.jobs.get(str(inspection or ''))
+        if not job or job.kind != 'inspect' or job.state != 'done':
+            raise ValueError('Check the package first.')
+        found = job.result
+        if found['needs_confirm'] and not accept:
+            raise ValueError('Confirm the licence terms first.')
+        for other in self.jobs.values():
+            if other.state == 'running' and other.kind in ('install', 'user-install', 'uninstall'):
+                raise ValueError('Another installation is running: wait for it to finish.')
+        return self._new_job('user-install', found['name'], self._install_user, found, bool(accept))
+
+    def _install_user(self, job, found, accepted):
+        with self.install_lock:
+            try:
+                self._prepare_pip(job)
+                spec = f'{check_package_name(found["name"])}=={found["version"]}'
+                job.set(0.15, phase='downloading')
+                tracker = PipProgress(job, max(1, len(found['packages'])))
+                if self._pip(job, ['install', '--progress-bar', 'raw', '--upgrade-strategy', 'only-if-needed', spec],
+                             tracker.feed) != 0:
+                    raise RuntimeError(_pip_error(job.log, 'Installation failed.'))
+                clean_appledouble()
+                importlib.invalidate_caches()
+                info = dist_info(found['name'])
+                if info is None:
+                    raise RuntimeError('Not installed: ' + found['name'])
+                key = canonical(info['name'])
+                old = self.user.get(key, {})
+                if any(m in sys.modules for m in info['imports']) and old.get('version') not in (None, info['version']):
+                    self.restart_required.add('user:' + key)
+                self.user[key] = {
+                    'pip': info['name'], 'version': info['version'], 'license': info['license'], 'status': info['status'],
+                    'summary': info['summary'][:200], 'imports': info['imports'],
+                    'accepted': accepted or old.get('accepted', False),     # the user confirmed a licence that is not OSI
+                    'packages': [{k: r[k] for k in ('name', 'version', 'license', 'status')} for r in found['packages']],
+                    'cite': old.get('cite', ''), 'added': old.get('added') or time.strftime('%Y-%m-%d'),
+                }
+                self._write_user()
+                job.result = {'name': info['name'], 'version': info['version'], 'imports': info['imports']}
+                job.set(1.0, phase='done', detail='')
+            finally:
+                self.verify_async(force=True)
+
+    def start_uninstall(self, name):
+        """Remove one of the user's modules (pip uninstall; the packages installed with it stay).
+        A module that is not installed any more is only forgotten."""
+        key = canonical(check_package_name(name))
+        if key not in self.user:
+            raise ValueError(f'“{name}” is not one of your modules.')
+        if key in self.registry_dists:
+            raise ValueError(f'“{name}” is used by PyPlotter and cannot be removed here.')
+        if installed_version(self.user[key]['pip']):
+            users = dependents(self.user[key]['pip'])
+            if users:
+                raise ValueError(f'“{name}” is needed by {", ".join(users)}: it cannot be removed.')
+        return self._new_job('uninstall', self.user[key]['pip'], self._uninstall, key)
+
+    def _uninstall(self, job, key):
+        with self.install_lock:
+            pip_name = self.user[key]['pip']
+            if installed_version(pip_name):
+                job.set(0.2, phase='uninstalling', detail=pip_name)
+                if self._pip(job, ['uninstall', '--yes', check_package_name(pip_name)]) != 0:
+                    raise RuntimeError(_pip_error(job.log, 'pip could not remove the package.'))
+                importlib.invalidate_caches()
+                if any(m in sys.modules for m in self.user[key].get('imports', [])):
+                    self.restart_required.add('user:' + key)
+            del self.user[key]
+            self.checks.pop('user:' + key, None)
+            self._write_user()
+            job.set(1.0, phase='done', detail='')
+
+    def set_user_cite(self, name, text):
+        key = canonical(check_package_name(name))
+        if key not in self.user:
+            raise ValueError(f'“{name}” is not one of your modules.')
+        self.user[key]['cite'] = str(text or '').strip()[:2000]
+        self._write_user()
 
 
 def _pip_error(log, fallback):
