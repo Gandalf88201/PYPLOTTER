@@ -5,8 +5,10 @@
 
 window.Analysis = (() => {
   const A = { list: null, current: null, params: {}, results: {}, editing: null };
-  const CATS = ['fit', 'timeseries', 'stats', 'signal', 'custom'];
+  const CATS = ['recipe', 'fit', 'timeseries', 'stats', 'signal', 'custom'];
   const L = obj => (obj && typeof obj === 'object') ? (obj[state.lang] || obj.en || '') : (obj ?? '');
+  // Layers drawn over the original figure (others belong only to the result's own plot).
+  const figureOverlays = res => res.overlays.filter(o => o.on_figure !== false);
 
   // ---------------------------------------------------------------- list
   async function load(force = false) {
@@ -119,6 +121,12 @@ window.Analysis = (() => {
     edit.onclick = () => (p.source === 'user' ? openEditor({ file: p.file }) : customize(p.id));
     head.append(desc, edit);
     main.append(head);
+    if (p.steps && p.steps.length) {           // recipes: what will be done, in order
+      const ol = document.createElement('ol');
+      ol.className = 'an-steps';
+      p.steps.forEach(s => { const li = document.createElement('li'); li.textContent = L(s); ol.append(li); });
+      main.append(ol);
+    }
 
     const values = A.params[paramKey(id)] || {};
     const form = document.createElement('div');
@@ -274,7 +282,7 @@ window.Analysis = (() => {
       renderResult(res);
       // Curves on the data's axes go on a copy of the figure; results with axes of their own
       // (ACF, spectrum, Q–Q…) open as a figure of their own. The original figure never changes.
-      if (res.overlays.length) showOnCopy(res);
+      if (figureOverlays(res).length) showOnCopy(res);
       else if (res.dataset) showResult(res);
     } catch (e) {
       if (e.code === 'missing_modules') {
@@ -371,7 +379,7 @@ window.Analysis = (() => {
     box.innerHTML = '';
     const bar = document.createElement('div');
     bar.className = 'an-actions';
-    if (res.overlays.length) {
+    if (figureOverlays(res).length) {
       const v = copyOf(res);
       const ov = document.createElement('button');
       ov.className = 'btn small primary';
@@ -382,7 +390,7 @@ window.Analysis = (() => {
     }
     if (res.dataset) {
       const plot = document.createElement('button');
-      plot.className = res.overlays.length ? 'btn small' : 'btn small primary';
+      plot.className = figureOverlays(res).length ? 'btn small' : 'btn small primary';
       const rv = resultViewOf(res);
       plot.textContent = rv ? t('an.goto_plot') : t('an.plot');
       plot.title = t('an.plot_hint', { rows: res.dataset.rows.toLocaleString(LOCALE()), cols: res.dataset.columns.length });
@@ -439,7 +447,7 @@ window.Analysis = (() => {
       || newView();
     const s = v.spec;
     s.overlays = (s.overlays || []).filter(o => o.analysis_run !== res.plugin.id);
-    res.overlays.forEach(o => s.overlays.push(stripOverlay(o, res, s, s.overlays.length)));
+    figureOverlays(res).forEach(o => s.overlays.push(stripOverlay(o, res, s, s.overlays.length)));
     v.runs = v.runs.filter(r => r.id !== res.plugin.id);
     v.runs.push({ id: res.plugin.id, name: res.plugin.name, run: res.run_id });
     // A fit weighted by an error column: show the data with those error bars (on the copy only).
@@ -590,5 +598,12 @@ window.Analysis = (() => {
   }
   bind();
 
-  return { show, updateDerived, load, renderList, reset, viewsChanged, relabel: () => { if (A.list) show(); } };
+  // Modules were installed or removed: refresh the "needs module ↓" marks of the list, keep the form.
+  async function modulesChanged() {
+    if (!A.list) return;
+    try { await load(true); renderList(); } catch (e) { /* the list stays as it was */ }
+  }
+
+  return { show, updateDerived, load, renderList, reset, viewsChanged, modulesChanged,
+    relabel: () => { if (A.list) show(); } };
 })();

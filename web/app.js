@@ -148,8 +148,10 @@ const kindNeeds = kind => missingOf(state.meta.kinds[kind]?.requires || []);
 async function refreshStatus() {
   state.status = await api('/api/status');
   const updates = state.status.modules.filter(m => m.update && m.installed).length;
-  $('#updatesBadge').hidden = !updates;
-  $('#updatesBadge').textContent = updates;
+  const broken = state.status.modules.filter(m => m.installed && m.works === false).length;
+  $('#updatesBadge').hidden = !(updates || broken);
+  $('#updatesBadge').textContent = broken || updates;
+  $('#updatesBadge').classList.toggle('danger', !!broken);
   const restart = state.status.restart_required;
   $('#restartBanner').hidden = !restart;
   $('#app').classList.toggle('with-banner', restart);
@@ -167,8 +169,8 @@ function setBar(box, frac) {
   box.querySelector('.bar').style.width = Math.round(frac * 100) + '%';
 }
 
-async function runInstall(ids, upgrade, onUpdate) {
-  let job = await api('/api/modules/install', { ids, upgrade });
+async function runInstall(ids, upgrade, onUpdate, reinstall = false) {
+  let job = await api('/api/modules/install', { ids, upgrade, reinstall });
   state.busyJob = job.id;
   while (job.state === 'running') {
     onUpdate(job);
@@ -307,8 +309,15 @@ function buildStaticSelects() {
   updatePalettePreview();
 }
 
+function paletteColors(palette = state.spec.style.palette) {
+  const fixed = state.meta.palettes[palette];
+  if (fixed && fixed.length) return fixed;
+  const pv = state.meta.palette_previews || {};
+  return (palette === 'style' ? (pv.style || {})[state.spec.style.base] : pv[palette]) || [];
+}
+
 function updatePalettePreview() {
-  const pal = state.meta.palettes[state.spec.style.palette] || [];
+  const pal = paletteColors();
   $('#paletteSwatches').innerHTML = pal.slice(0, 10).map(c => `<span style="background:${c}"></span>`).join('');
 }
 
@@ -342,6 +351,7 @@ function onControlChange(ev) {
   if (path === 'figure.units') return changeUnits(old, value);
   setPath(state.spec, path, value);
   if (path === 'style.palette') { updatePalettePreview(); buildSeries(); }
+  if (path === 'style.base') updatePalettePreview();
   if (path === 'figure.width' || path === 'figure.height') syncControls();
   if (path === 'style.base' || path === 'style.cmap') {
     const need = path === 'style.base' ? state.meta.styles[value]?.requires || [] : (String(value).startsWith('cmc.') ? ['cmcrameri'] : []);
@@ -529,23 +539,38 @@ function buildMapping(rebuildLists = true) {
 }
 
 // ------------------------------------------------------------------ series styling
+// Colour of a layer as the last figure drew it (null before the first render of this figure).
+const drawnOverlayColor = o => (state.drawnOverlays && state.drawnOverlays.spec === state.spec && state.drawnOverlays.color[o.id]) || null;
+
+// After a render: show in the Overlays panel the colours the layers really got.
+function syncOverlayColors() {
+  $$('#overlayList .overlay-row').forEach(row => {
+    const o = (state.spec.overlays || []).find(x => x.id === row.dataset.id);
+    const input = row.querySelector('input[type=color]');
+    const real = o && drawnOverlayColor(o);
+    if (real && document.activeElement !== input) input.value = real;
+  });
+}
+
 function buildOverlays() {
   const list = state.spec.overlays || [];
   $('#overlayCard').hidden = !list.length;
   $('#overlayCount').textContent = list.length || '';
   const box = $('#overlayList');
   box.innerHTML = '';
-  const pal = state.meta.palettes[state.spec.style.palette] || [];
+  const pal = paletteColors();
   list.forEach((o, i) => {
     o.style = o.style || {};
     const row = document.createElement('div');
     row.className = 'overlay-row' + (o.hidden ? ' hidden-layer' : '');
+    row.dataset.id = o.id;
     row.innerHTML = `<div class="src"></div><input type="color"><input type="text"><button class="reset" type="button">✕</button>
       <div class="opts"><select class="ls"></select><label class="check"><input type="checkbox" class="band"><span></span></label>
       <label class="check"><input type="checkbox" class="show"><span></span></label></div>`;
     row.querySelector('.src').textContent = o.source_name || '';
     const color = row.querySelector('input[type=color]');
-    color.value = o.style.color || pal[(state.spec.y.length + i) % (pal.length || 1)] || '#000000';
+    const fixed = /^#[0-9a-f]{6}$/i.test(o.style.color || '') ? o.style.color : null;
+    color.value = fixed || drawnOverlayColor(o) || pal[(state.spec.y.length + i) % (pal.length || 1)] || '#000000';
     const label = row.querySelector('input[type=text]');
     label.value = o.label || '';
     const ls = row.querySelector('.ls');
@@ -589,31 +614,73 @@ function newSession() {
   toast(t('new.done'));
 }
 
+// The series the last figure really drew, in drawing order: [{key, label, color}] (sent by the server
+// with each render). The Series panel shows exactly these rows and colours, so panel = figure.
+function seriesDrawn(header) {
+  let list = null;
+  try { list = header ? JSON.parse(decodeURIComponent(header)) : null; } catch (e) { list = null; }
+  if (!Array.isArray(list)) return;
+  // Analysis layers: their real colours go to the Overlays panel.
+  state.drawnOverlays = { spec: state.spec, color: Object.fromEntries(list.filter(e => e.overlay).map(e => [e.overlay, e.color])) };
+  syncOverlayColors();
+  list = list.filter(e => !e.overlay);
+  state.drawn = { list, spec: state.spec };
+  const box = $('#seriesList');
+  // Other rows than the figure's series (categories, groups, another view): rebuild the panel,
+  // unless the user is typing in it. In every case the swatches take the colours really drawn,
+  // also when the panel was built (with a guess) before this render.
+  const shown = $$('.series', box).map(r => r.dataset.key).join('\u0002');
+  if (shown !== list.map(e => e.key).join('\u0002') && !box.contains(document.activeElement)) {
+    buildSeriesRows();
+    return;
+  }
+  const color = Object.fromEntries(list.map(e => [e.key, e.color]));
+  $$('.series', box).forEach(row => {
+    const input = row.querySelector('input[type=color]');
+    if (color[row.dataset.key] && document.activeElement !== input) input.value = color[row.dataset.key];
+  });
+}
+
 function buildSeries() {
   buildOverlays();
+  buildSeriesRows();
+}
+
+function buildSeriesRows() {
   const box = $('#seriesList');
   box.innerHTML = '';
   const s = state.spec;
   const cols = [...s.y, ...(state.meta.twin_kinds.includes(s.kind) ? s.y2 : [])];
-  const extraRows = (window.Files && !viewDataset() && (s.layout || {}).mode !== 'panels') ? Files.extraSpec().flatMap(e =>
+  const extraAll = (window.Files && !viewDataset()) ? Files.extraSpec().flatMap(e =>
     e.y.map(c => ({ key: `${e.id}:${c}`, title: `${e.name} · ${c}` }))) : [];
-  if ((!cols.length && !extraRows.length) || s.hue) {
+  const extraRows = (s.layout || {}).mode !== 'panels' ? extraAll : [];
+  const base = [...cols.map(c => ({ key: c, title: c })), ...extraRows];
+  const titles = Object.fromEntries([...base, ...extraAll].map(r => [r.key, r.title]));
+  const titleOf = key => titles[key] || (key.includes('::') ? key.split('::').map((k, i) => (i ? k : titles[k] || k)).join(' · ') : key);
+  // After a render of this figure: its real series (groups and categories included) and colours.
+  const drawn = state.drawn && state.drawn.spec === s ? state.drawn.list : null;
+  if (drawn && !drawn.length) {        // drawn, but this kind of figure has no colour per series
+    box.innerHTML = `<p class="small muted">${t('series.none')}</p>`;
+    return;
+  }
+  const rows = drawn ? drawn.map(e => ({ key: e.key, title: titleOf(e.key), color: e.color })) : (s.hue ? [] : base);
+  if (!rows.length) {
     box.innerHTML = `<p class="small muted">${t('series.empty')}</p>`;
     return;
   }
-  const pal = state.meta.palettes[s.style.palette] || [];
-  const rows = [...cols.map(c => ({ key: c, title: c })), ...extraRows];
-  rows.forEach(({ key: col, title }, i) => {
+  const pal = paletteColors(s.style.palette);
+  rows.forEach(({ key: col, title, color: real }, i) => {
     const over = s.series[col] || {};
     const row = document.createElement('div');
     row.className = 'series';
+    row.dataset.key = col;
     row.innerHTML = `<div class="name"><span></span><button class="reset" type="button"></button></div>
       <input type="color"><input type="text">
       <div class="opts"><select class="ls"></select><select class="mk"></select><input type="number" class="lw" step="0.1" min="0"></div>`;
     row.querySelector('.name span').textContent = title;
     row.querySelector('.reset').textContent = t('series.reset');
     const color = row.querySelector('input[type=color]');
-    color.value = over.color || pal[i % (pal.length || 1)] || '#000000';
+    color.value = over.color || real || pal[i % (pal.length || 1)] || '#000000';
     const label = row.querySelector('input[type=text]');
     label.placeholder = title;
     label.title = t('series.label');
@@ -638,7 +705,7 @@ function buildSeries() {
     color.oninput = () => { color.dataset.touched = '1'; update(); };
     [label, lw].forEach(el => { el.oninput = update; });
     [ls, mk].forEach(el => { el.onchange = update; });
-    row.querySelector('.reset').onclick = () => { delete s.series[col]; buildSeries(); scheduleRender(0); };
+    row.querySelector('.reset').onclick = () => { delete s.series[col]; buildSeriesRows(); scheduleRender(0); };
     box.append(row);
   });
 }
@@ -740,6 +807,7 @@ async function renderNow() {
     const res = await api('/api/render', { dataset_id: state.dataset.dataset_id, spec: specForServer(), dpi }, { raw: true, signal: ctrl.signal });
     const blob = await res.blob();
     if (seq !== state.renderSeq) return;
+    seriesDrawn(res.headers.get('X-Series'));
     const url = URL.createObjectURL(blob);
     img.onload = () => URL.revokeObjectURL(url);
     img.src = url;
@@ -1282,6 +1350,14 @@ function renderModules() {
   const upd = st.modules.filter(m => m.installed && m.update);
   $('#btnUpdateAll').hidden = !upd.length;
   $('#btnUpdateAll').textContent = t('modules.update_all', { n: upd.length });
+  const inst = st.modules.filter(m => m.installed);
+  const broken = inst.filter(m => m.works === false);
+  const checking = st.checks?.state === 'running' || inst.some(m => m.works === null);
+  const line = $('#modulesCheck');
+  line.className = 'small check-line' + (broken.length ? ' bad' : (checking ? ' muted' : ' ok'));
+  line.textContent = broken.length ? t('modules.check_bad', { n: broken.length })
+    : (checking ? t('modules.check_running') : t('modules.check_ok', { n: inst.length }));
+  $('#btnVerify').disabled = checking;
   const box = $('#modulesTable');
   box.innerHTML = '';
   const cats = ['core', 'plotting', 'analysis', 'styles', 'science', 'formats'];
@@ -1311,13 +1387,28 @@ function renderModules() {
         meta.append(a);
       }
       info.append(name, lic, meta);
+      if (m.installed && m.works === false && m.import_error) {
+        const err = document.createElement('div');
+        err.className = 'import-error';
+        err.textContent = m.import_error;
+        info.append(err);
+      }
       const status = document.createElement('span');
       status.className = 'status';
       if (!m.installed) { status.classList.add('no'); status.textContent = t('modules.missing'); }
+      else if (m.works === false) { status.classList.add('bad'); status.textContent = t('modules.broken', { v: m.installed }); }
       else if (m.update) { status.classList.add('upd'); status.textContent = `${t('modules.installed', { v: m.installed })} → ${t('modules.newer', { v: m.latest })}`; }
       else { status.classList.add('ok'); status.textContent = t('modules.installed', { v: m.installed }); }
+      if (m.installed && m.works !== false) status.textContent += ` · ${t(m.works ? 'modules.works' : 'modules.verifying')}`;
       if (m.restart) status.textContent += ` · ${t('modules.restart')}`;
       const actions = document.createElement('span');
+      if (m.installed && m.works === false) {
+        const b = document.createElement('button');
+        b.className = 'btn small primary';
+        b.textContent = t('modules.reinstall');
+        b.onclick = () => installFromManager([m.id], false, true);
+        actions.append(b);
+      }
       if (!m.installed || m.update || m.outdated) {
         const b = document.createElement('button');
         b.className = 'btn small' + (m.installed ? '' : ' primary');
@@ -1332,12 +1423,12 @@ function renderModules() {
   });
 }
 
-async function installFromManager(ids, upgrade) {
+async function installFromManager(ids, upgrade, reinstall = false) {
   if (state.busyJob) { toast(t('modules.busy'), true); return; }
-  $$('#modulesTable button, #btnUpdateAll, #btnRefresh').forEach(b => { b.disabled = true; });
+  $$('#modulesTable button, #btnUpdateAll, #btnRefresh, #btnVerify').forEach(b => { b.disabled = true; });
   const bar = $('#modulesProgress');
   try {
-    const job = await runInstall(ids, upgrade, j => { setBar(bar, j.progress); $('#modulesPhase').textContent = `${j.title}: ${phaseText(j)}`; });
+    const job = await runInstall(ids, upgrade, j => { setBar(bar, j.progress); $('#modulesPhase').textContent = `${j.title}: ${phaseText(j)}`; }, reinstall);
     if (job.state === 'error') toast(phaseText(job), true);
   } catch (e) {
     handleError(e);
@@ -1345,24 +1436,37 @@ async function installFromManager(ids, upgrade) {
   setTimeout(() => { bar.hidden = true; }, 800);
   renderModules();
   if (state.meta) { buildStaticSelects(); buildKindGallery(); }
+  pollRefresh();       // the import check runs again after every install
 }
 
 async function openModules() {
   await refreshStatus();
   renderModules();
   $('#modulesDialog').showModal();
-  if (state.status.refresh?.state === 'running') pollRefresh();
+  pollRefresh();
 }
 
+const backgroundChecks = () => state.status.refresh?.state === 'running' || state.status.checks?.state === 'running';
+
+// Follow the PyPI check and the import check until both are over (each up to ~5 min).
+let polling = false;
 async function pollRefresh() {
-  for (let i = 0; i < 40; i++) {
-    await new Promise(r => setTimeout(r, 700));
-    await refreshStatus();
-    if ($('#modulesDialog').open) renderModules();
-  if (window.Analysis) { window.Analysis.relabel(); window.Analysis.updateDerived(); }
-  if (window.Files) Files.render();
-    if (state.status.refresh?.state !== 'running') break;
+  if (polling) return;
+  polling = true;
+  // Only the module dialog and the "needs module ↓" marks depend on these checks: the analysis form,
+  // which the user may be filling in, is never rebuilt here.
+  const installedSig = () => (state.status?.modules || []).map(m => `${m.id}=${m.installed || ''}`).join(',');
+  const before = installedSig();
+  try {
+    for (let i = 0; i < 400 && backgroundChecks(); i++) {
+      await new Promise(r => setTimeout(r, 700));
+      await refreshStatus();
+      if ($('#modulesDialog').open) renderModules();
+    }
+  } finally {
+    polling = false;
   }
+  if (installedSig() !== before && window.Analysis) window.Analysis.modulesChanged();
 }
 
 // ------------------------------------------------------------------ about
@@ -1419,6 +1523,7 @@ function bindGlobal() {
   $('#btnAbout').onclick = openAbout;
   $('#btnRestart').onclick = restartService;
   $('#btnRefresh').onclick = async () => { await api('/api/modules/refresh', {}); await refreshStatus(); renderModules(); pollRefresh(); };
+  $('#btnVerify').onclick = async () => { await api('/api/modules/verify', {}); await refreshStatus(); renderModules(); pollRefresh(); };
   $('#btnUpdateAll').onclick = () => installFromManager(state.status.modules.filter(m => m.installed && m.update).map(m => m.id), true);
   $$('dialog [data-close]').forEach(b => { b.onclick = () => b.closest('dialog').close(); });
 }
@@ -1475,11 +1580,7 @@ async function start() {
   updateFigInfo();
   bindApp();
   if (window.Analysis) window.Analysis.show();
-  refreshStatus().then(() => {
-    if (state.status.refresh?.state === 'running') {
-      setTimeout(() => refreshStatus().catch(() => {}), 6000);
-    }
-  });
+  refreshStatus().then(pollRefresh).catch(() => {});   // badge shows updates and broken modules
 }
 
 async function boot() {

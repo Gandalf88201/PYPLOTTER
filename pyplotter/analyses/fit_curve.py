@@ -1,7 +1,9 @@
 """Non-linear least-squares curve fitting (scipy.optimize.curve_fit).
 
 Built-in models with automatic starting values, or your own formula such as
-``a*exp(-x/tau) + c``. Reports parameters ± standard errors, 95 % confidence intervals,
+``a*exp(-x/tau) + c``. Fits either a column Y against X, or the histogram of one column (e.g. a
+Gaussian over the distribution of values); with a histogram figure open, its bins are used and the
+curve is drawn on it. Reports parameters ± standard errors, 95 % confidence intervals,
 R², adjusted R², RMSE, reduced χ² (with error column), AIC and BIC, and returns the data
 with the fitted curve and residuals.
 """
@@ -39,9 +41,20 @@ PLUGIN = {
                     'it': 'Fit ai minimi quadrati di un modello o di una formula a scelta, con errori e bontà del fit.'},
     'requires': ['scipy'],
     'params': [
-        {'id': 'x', 'type': 'column', 'default': 'x', 'label': {'en': 'X', 'it': 'X'}},
-        {'id': 'y', 'type': 'column', 'default': 'y', 'label': {'en': 'Y', 'it': 'Y'}},
-        {'id': 'sigma', 'type': 'column', 'optional': True, 'default': 'yerr',
+        {'id': 'source', 'type': 'choice', 'default': 'auto', 'label': {'en': 'Data to fit', 'it': 'Dati da adattare'},
+         'choices': [{'value': 'auto', 'label': {'en': 'automatic (histogram if the figure is a histogram)',
+                                                 'it': 'automatico (istogramma se il grafico è un istogramma)'}},
+                     {'value': 'xy', 'label': {'en': 'column Y against column X', 'it': 'colonna Y in funzione di X'}},
+                     {'value': 'hist', 'label': {'en': 'histogram of a column (distribution of its values)',
+                                                 'it': 'istogramma di una colonna (distribuzione dei valori)'}}]},
+        {'id': 'x', 'type': 'column', 'optional': True, 'default': 'x', 'show_if': {'source': ['auto', 'xy']},
+         'label': {'en': 'X (empty = row number)', 'it': 'X (vuoto = numero di riga)'}},
+        {'id': 'y', 'type': 'column', 'default': 'y',
+         'label': {'en': 'Y (or the column of the histogram)', 'it': 'Y (o la colonna dell’istogramma)'}},
+        {'id': 'bins', 'type': 'int', 'optional': True, 'min': 3, 'max': 2000, 'show_if': {'source': ['auto', 'hist']},
+         'label': {'en': 'Histogram bins (empty = as in the figure / automatic)',
+                   'it': 'Intervalli dell’istogramma (vuoto = come nel grafico / automatico)'}},
+        {'id': 'sigma', 'type': 'column', 'optional': True, 'default': 'yerr', 'show_if': {'source': ['auto', 'xy']},
          'label': {'en': 'Y error (weights, optional)', 'it': 'Errore Y (pesi, facoltativo)'}},
         {'id': 'model', 'type': 'choice', 'default': 'exp_decay', 'label': {'en': 'Model', 'it': 'Modello'},
          'choices': [{'value': k, 'label': v[0]} for k, v in MODELS.items()] +
@@ -198,14 +211,54 @@ def curve_band(f, x, popt, pcov, tcrit, extra_var=0.0):
     return tcrit * np.sqrt(np.clip(var, 0, None))
 
 
+def free_name(name, taken):
+    """name, or name with a numbered suffix, so that it differs from every name in taken."""
+    out, k = name, 2
+    while out in taken:
+        out, k = f'{name} ({k})', k + 1
+    return out
+
+
+def histogram(df, p, ctx):
+    """Histogram of column p['y']. With a histogram of that column open, the same bins and the same
+    counts/density as the figure, so the fitted curve can be drawn on it."""
+    v = ctx.numeric(df, p['y']).to_numpy(float)
+    v = v[np.isfinite(v)]
+    if v.size < 5:
+        raise ValueError(ctx.tr('At least 5 values are needed for a histogram.', 'Servono almeno 5 valori per un istogramma.'))
+    spec = ctx.spec or {}
+    st = spec.get('style') or {}
+    same = (spec.get('kind') == 'hist' and list(spec.get('y') or []) == [p['y']] and not spec.get('hue')
+            and not any(isinstance(e, dict) and e.get('enabled', True) for e in spec.get('extra') or []))
+    fig_bins = st.get('bins', 30)
+    fig_bins = int(fig_bins) if str(fig_bins).isdigit() else (fig_bins or 'auto')
+    bins = p['bins'] or (fig_bins if same else 'auto')
+    density = bool(st.get('density')) if same else True
+    values, edges = np.histogram(v, bins=np.histogram_bin_edges(v, bins=bins), density=density)
+    return {'x': 0.5 * (edges[1:] + edges[:-1]), 'y': values.astype(float), 'n': v.size, 'bins': values.size,
+            'density': density, 'on_figure': same and (not p['bins'] or p['bins'] == fig_bins),
+            'yname': ctx.tr('density', 'densità') if density else ctx.tr('count', 'conteggio')}
+
+
 def run(df, p, ctx):
     from scipy import optimize, stats
 
-    x, y = ctx.xy(df, p['x'], p['y'])
+    mode = p['source']
+    if mode == 'auto':
+        mode = 'hist' if (ctx.spec or {}).get('kind') == 'hist' else 'xy'
+    hist = histogram(df, p, ctx) if mode == 'hist' else None
     sigma = None
-    if p['sigma']:
+    if hist:
+        x, y = hist['x'], hist['y']
+        xname = p['y']
+        yname = free_name(hist['yname'], {xname})          # a column called "density" or "count"
+    else:
+        yname = p['y']
+        xname = p['x'] or free_name('index', {yname})
+        x, y = ctx.xy(df, p['x'], p['y'])
+    if p['sigma'] and not hist:
         s = ctx.numeric(df, p['sigma'], dropna=False)
-        xs = ctx.numeric(df, p['x'], dropna=False)
+        xs = ctx.numeric(df, p['x'], dropna=False) if p['x'] else pd.Series(np.arange(len(df), dtype=float), index=df.index)
         ys = ctx.numeric(df, p['y'], dropna=False)
         ok = xs.notna() & ys.notna() & s.notna() & (s > 0)
         x, y, sigma = (v[ok].to_numpy(dtype=float) for v in (xs, ys, s))
@@ -246,11 +299,19 @@ def run(df, p, ctx):
     adj_r2 = 1 - (1 - r2) * (n - 1) / dof if np.isfinite(r2) else np.nan
     rmse = np.sqrt(ss_res / n)
     rss = ss_res if sigma is None else float(np.sum((resid / sigma) ** 2))
-    aic = n * np.log(ss_res / n) + 2 * k if ss_res > 0 else np.nan
-    bic = n * np.log(ss_res / n) + k * np.log(n) if ss_res > 0 else np.nan
+    if sigma is not None:      # known errors: −2 ln L = χ² + const, the quantity the weighted fit minimised
+        aic, bic = rss + 2 * k, rss + k * np.log(n)
+    else:
+        aic = n * np.log(ss_res / n) + 2 * k if ss_res > 0 else np.nan
+        bic = n * np.log(ss_res / n) + k * np.log(n) if ss_res > 0 else np.nan
 
     r = ctx.result()
     r.text(equation)
+    if hist:
+        kind = ctx.tr('density', 'densità') if hist['density'] else ctx.tr('counts', 'conteggi')
+        r.text(ctx.tr(f'Fit of the histogram of “{p["y"]}”: {hist["n"]} values in {hist["bins"]} bins ({kind}).',
+                      f'Fit dell’istogramma di «{p["y"]}»: {hist["n"]} valori in {hist["bins"]} intervalli ({kind}).'))
+        r.keep('bins', hist['bins'])
     rows = []
     for name, val, err in zip(names, popt, perr):
         rows.append({ctx.tr('parameter', 'parametro'): name, ctx.tr('value', 'valore'): val,
@@ -258,15 +319,17 @@ def run(df, p, ctx):
                      'CI 95% low': val - tcrit * err, 'CI 95% high': val + tcrit * err,
                      ctx.tr('rel. error %', 'errore rel. %'): abs(err / val) * 100 if val else np.nan})
     r.table(ctx.tr('Fitted parameters', 'Parametri del fit'), rows)
-    r.value('N', n)
+    for name, val, err in zip(names, popt, perr):
+        r.keep(name, float(val), float(err))         # e.g. r.get('mu'), r.error('mu') in a recipe
+    r.value('N', n, key='n')
     r.value(ctx.tr('degrees of freedom', 'gradi di libertà'), dof)
-    r.value('R²', r2)
-    r.value(ctx.tr('adjusted R²', 'R² corretto'), adj_r2)
-    r.value('RMSE', rmse)
+    r.value('R²', r2, key='r2')
+    r.value(ctx.tr('adjusted R²', 'R² corretto'), adj_r2, key='adj_r2')
+    r.value('RMSE', rmse, key='rmse')
     if sigma is not None:
         r.value('χ²_red', rss / dof)
-    r.value('AIC', aic)
-    r.value('BIC', bic)
+    r.value('AIC', aic, key='aic')
+    r.value('BIC', bic, key='bic')
     if ier not in (1, 2, 3, 4):
         r.text(ctx.tr('Warning: the optimiser reports: ', 'Attenzione, l’ottimizzatore riporta: ') + str(msg))
     if p['model'] == 'stretched':
@@ -278,14 +341,17 @@ def run(df, p, ctx):
     if p['model'] == 'arrhenius':
         r.value('Ea', popt[1] / 1000, perr[1] / 1000, 'kJ/mol')
 
-    xname, yname = p['x'], p['y']
-    resid_name = ctx.tr('residual', 'residuo')
-    data = pd.DataFrame({xname: x, yname: y, 'fit': fit_y, resid_name: resid})
+    taken = {xname, yname, p['sigma']}
+    fit_name = free_name('fit', taken)
+    resid_name = free_name(ctx.tr('residual', 'residuo'), taken | {fit_name})
+    r.keep('fit_column', fit_name)
+    r.keep('resid_column', resid_name)
+    data = pd.DataFrame({xname: x, yname: y, fit_name: fit_y, resid_name: resid})
     if sigma is not None:
         data[p['sigma']] = sigma
     # Smooth curve on a fine grid with its 95 % band, to draw over the original figure.
     grid = np.linspace(x.min(), x.max(), 400)
-    curve = pd.DataFrame({xname: grid, 'fit': f(grid, *popt)})
+    curve = pd.DataFrame({xname: grid, fit_name: f(grid, *popt)})
     lo = hi = None
     band_label = None
     if p['band'] != 'none' and np.all(np.isfinite(pcov)):
@@ -293,14 +359,19 @@ def run(df, p, ctx):
         if p['band'] == 'prediction':
             extra = np.interp(grid, x, sigma ** 2) if sigma is not None else ss_res / dof
         half = curve_band(f, grid, popt, pcov, tcrit, extra)
-        lo, hi = 'band low', 'band high'
-        curve[lo], curve[hi] = curve['fit'] - half, curve['fit'] + half
+        lo, hi = free_name('band low', taken | {fit_name}), free_name('band high', taken | {fit_name})
+        curve[lo], curve[hi] = curve[fit_name] - half, curve[fit_name] + half
         band_label = ctx.tr('95% confidence', 'confidenza 95%') if p['band'] == 'confidence' \
             else ctx.tr('95% prediction', 'predizione 95%')
         r.value(ctx.tr('band', 'banda'), band_label)
-    ref = r.overlay(curve, xname, 'fit', lo, hi, label=ctx.tr('fit', 'fit') + f' ({p["model"]})', band_label=band_label)
+    ref = r.overlay(curve, xname, fit_name, lo, hi, label=ctx.tr('fit', 'fit') + f' ({p["model"]})', band_label=band_label,
+                    on_figure=hist['on_figure'] if hist else True)
     r.table(ctx.tr('Fitted curve and band', 'Curva e banda del fit'), curve.iloc[::20])
-    if sigma is not None:
+    if hist:
+        plot = {'kind': 'step', 'x': xname, 'y': [yname], 'overlays': [{'ref': ref}],
+                'series': {yname: {'label': ctx.tr('histogram', 'istogramma')}},
+                'text': {'xlabel': p['y'], 'ylabel': yname}}
+    elif sigma is not None:
         plot = {'kind': 'errorbar', 'x': xname, 'y': [yname], 'yerr': p['sigma'], 'style': {'marker': 'o'},
                 'series': {yname: {'linestyle': 'none', 'label': yname}}, 'overlays': [{'ref': ref}]}
     else:

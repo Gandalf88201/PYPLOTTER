@@ -40,8 +40,16 @@ def run(df, p, ctx):
             ci = res.confidence_interval(0.95)
             row.update({'CI 95% low': ci.low, 'CI 95% high': ci.high})
         rows.append(row)
+        if len(rows) == 1:
+            r_first = (coef, float(res.pvalue), row.get('CI 95% low'), row.get('CI 95% high'), len(pair))
         mat.loc[a, b] = mat.loc[b, a] = coef
     r = ctx.result()
+    if rows:                                  # first pair, for recipes
+        r.keep('coef', r_first[0])
+        r.keep('p', r_first[1])
+        r.keep('ci_low', r_first[2])
+        r.keep('ci_high', r_first[3])
+        r.keep('n', r_first[4])
     r.table(ctx.tr('Pairs', 'Coppie'), rows)
     r.table(ctx.tr('Matrix', 'Matrice'), mat.round(4), index=True)
     r.data(data, name=f'{p["method"]} correlation', plot={'kind': 'corr', 'y': cols})

@@ -48,12 +48,22 @@ printed in the terminal window. Options:
   colour/label/line/marker, fonts and sizes in points, LaTeX-style math (`$\alpha$`, `$10^{-3}$`),
   log/symlog scales, limits, ticks (in/out, minor, mirrored), grid, frame, legend inside/outside.
   Style templates can be saved and loaded as JSON.
+- **Recipes** — ready-made paths that run several analyses in a row and answer in plain words, first in
+  the *Analysis* list: *Gaussian distribution of a column* (histogram + Gaussian fit, normality, true
+  error of the mean), *Mean of a time series* and *Equilibration of a simulation* (block averaging,
+  correlation time, automatic start of equilibrium, Chodera 2016) for MD/Monte Carlo data, *Are the
+  groups different?* (the right test chosen automatically), *Relation between two variables*,
+  *Peak fit* (all peaks fitted together; centre, height, FWHM, area, values written above the peaks)
+  and *Reaction kinetics* (zero, first and second order compared by AIC; k and t½ with errors).
+  Recipes are plugins too: see [PLUGINS.md](PLUGINS.md) to write your own.
 - **Analysis** panel in the right sidebar, above *Export* — the figure stays open, the results (numbers,
   tables, references) stay in the panel, and curves are drawn on a copy of the figure (all through
   open-source Python modules, results with the references to cite):
   - *fitting* — 15 models (exponential, double, stretched/KWW, power, Gaussian, Lorentzian, Voigt,
     logistic, Hill, Michaelis–Menten, Arrhenius, sine, polynomials) or your own formula, weighted by an
-    error column, with standard errors, 95 % CIs, R², adjusted R², RMSE, χ²_red, AIC, BIC (SciPy);
+    error column, with standard errors, 95 % CIs, R², adjusted R², RMSE, χ²_red, AIC, BIC (SciPy); it also
+    fits the **histogram of a column** (e.g. a Gaussian over a distribution of values), drawn straight
+    on a histogram figure with its own bins;
   - *time series* — autocorrelation and partial autocorrelation with confidence band, integrated
     correlation time, statistical inefficiency, effective samples (statsmodels); block averaging
     (Flyvbjerg–Petersen) for the true error of correlated data such as MD trajectories; cross-correlation;
@@ -79,7 +89,10 @@ printed in the terminal window. Options:
   they live in `~/.pyplotter/plugins/` and survive updates. See [PLUGINS.md](PLUGINS.md).
 - **Module manager**: `pyplotter/registry.json` lists every optional module with its licence and
   citation. At each start PyPlotter checks PyPI for the latest versions; missing modules are offered
-  when a feature needs them, updates are one click, each with a single progress bar.
+  when a feature needs them, updates are one click, each with a single progress bar. Each installed
+  module is also **imported once in a separate Python** (at start, after installs, or with *Check
+  imports*): a module that pip lists but that cannot be loaded is shown in red with its error and a
+  *Reinstall* button.
 
 ## Privacy and security
 
@@ -132,8 +145,17 @@ con un solo pulsante e una barra di avanzamento. Tieni aperta la finestra del te
 - Esportazione alle dimensioni esatte delle colonne delle riviste: PNG/TIFF/JPEG fino a 1200 DPI,
   PDF/SVG/EPS vettoriali con testo modificabile, HTML interattivo e uno ZIP con script Python che
   ricrea la figura, completo dei riferimenti da citare.
+- **Ricette** — percorsi pronti che eseguono più analisi in sequenza e rispondono in parole semplici,
+  prime nell'elenco *Analisi*: *Distribuzione gaussiana di una colonna* (istogramma + fit gaussiano,
+  normalità, vero errore della media), *Media di una serie temporale* ed *Equilibratura di una
+  simulazione* (block averaging, tempo di correlazione, inizio automatico dell'equilibrio, Chodera 2016)
+  per dati MD/Monte Carlo, *I gruppi sono diversi?* (il test giusto scelto in automatico), *Relazione tra
+  due variabili*, *Fit dei picchi* (tutti i picchi insieme; centro, altezza, FWHM, area, valori scritti
+  sopra i picchi) e *Cinetica di reazione* (ordine zero, uno e due confrontati con l'AIC; k e t½ con
+  errori). Anche le ricette sono plugin: per scriverne di nuove vedi [PLUGINS.md](PLUGINS.md).
 - Riquadro **Analisi** nella barra di destra, sopra *Esporta* (il grafico resta aperto e i risultati
-  numerici restano visibili nel riquadro): fit (15 modelli o formula libera, con errori, intervalli di confidenza, R², AIC),
+  numerici restano visibili nel riquadro): fit (15 modelli o formula libera, con errori, intervalli di confidenza, R², AIC;
+  anche dell'**istogramma di una colonna**, disegnato direttamente su un grafico a istogramma),
   autocorrelazione e PACF, tempo di correlazione, block averaging per l'errore di dati correlati (es. MD),
   correlazione incrociata, statistica descrittiva, test di normalità, confronto tra gruppi (t-test,
   ANOVA, Kruskal–Wallis, Tukey…), correlazioni, regressione e ANOVA con formule, fit di distribuzioni,
@@ -154,6 +176,9 @@ con un solo pulsante e una barra di avanzamento. Tieni aperta la finestra del te
   in `~/.pyplotter/plugins/` anche dopo gli aggiornamenti. Guida: [PLUGINS.md](PLUGINS.md).
 - Gestore dei moduli: a ogni avvio controlla su PyPI le ultime versioni; i moduli mancanti vengono
   proposti quando servono e si installano o aggiornano con un clic, con la sola barra di avanzamento.
+  Ogni modulo installato viene anche **importato in un Python separato** (all'avvio, dopo le
+  installazioni o con *Verifica import*): un modulo che pip elenca ma che non si carica appare in rosso
+  con il suo errore e il pulsante *Reinstalla*.
 
 **Licenze e citazioni.** PyPlotter è software libero (MIT) e usa solo pacchetti open source scaricati
 da PyPI; non include codice di terze parti. Le licenze sono in

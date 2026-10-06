@@ -18,7 +18,7 @@ import sys
 import threading
 import time
 import traceback
-from urllib.parse import unquote, urlsplit
+from urllib.parse import quote, unquote, urlsplit
 
 from . import __version__, catalog
 from .modules import MissingModules, ModuleManager, clean_appledouble
@@ -26,7 +26,8 @@ from .modules import MissingModules, ModuleManager, clean_appledouble
 ROOT = Path(__file__).resolve().parent.parent
 WEB = ROOT / 'web'
 MAX_JSON = 32 * 1024 * 1024
-MAX_DATASETS = 40
+MAX_DATASETS = 200                # kept in memory, least recently used dropped first …
+MAX_DATASET_BYTES = 2 * 1024 ** 3  # … also when together they take more than this
 PREVIEW_ROWS = 200
 CHUNK = 1 << 20
 MIME = {'.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
@@ -42,6 +43,12 @@ class ApiError(Exception):
 def safe_name(name, fallback='data'):
     name = re.sub(r'[^\w.\-]+', '_', Path(str(name)).name, flags=re.UNICODE).strip('._')
     return name[:120] or fallback
+
+
+def content_disposition(fname):
+    """Header value for a download name; HTTP headers are Latin-1, so non-ASCII names go in filename*."""
+    ascii_name = fname.encode('ascii', 'replace').decode('ascii').replace('?', '_').replace('"', '_')
+    return f'attachment; filename="{ascii_name}"; filename*=UTF-8\'\'{quote(fname, safe="")}'
 
 
 def json_safe(v):
@@ -195,11 +202,19 @@ class App:
         cols = smart.profile(df)
         mapping = smart.default_mapping(cols, len(df))
         did = secrets.token_hex(6)
+        try:
+            size = int(df.memory_usage(index=True, deep=False).sum())
+        except Exception:
+            size = 0
         with self.lock:
             self.datasets[did] = {'df': df, 'name': name, 'source': source, 'columns': cols,
-                                  'references': list(references)}
-            while len(self.datasets) > MAX_DATASETS:
-                self.datasets.popitem(last=False)
+                                  'references': list(references), 'bytes': size}
+            # Least recently used first (dataset() marks use): the file being plotted is never the one
+            # dropped, however many analyses register their results and layers.
+            total = sum(d.get('bytes', 0) for d in self.datasets.values())
+            while len(self.datasets) > 1 and (len(self.datasets) > MAX_DATASETS or total > MAX_DATASET_BYTES):
+                _, old = self.datasets.popitem(last=False)
+                total -= old.get('bytes', 0)
         head = df.head(PREVIEW_ROWS)
         return {'dataset_id': did, 'name': name, 'rows': int(len(df)), 'columns': cols, 'mapping': mapping,
                 'options': {k: v for k, v in used.items() if k != 'names'}, 'source': source,
@@ -207,7 +222,10 @@ class App:
                 'preview': [[json_safe(v) for v in row] for row in head.itertuples(index=False, name=None)]}
 
     def dataset(self, did):
-        ds = self.datasets.get(str(did))
+        with self.lock:
+            ds = self.datasets.get(str(did))
+            if ds is not None:
+                self.datasets.move_to_end(str(did))          # recently used: dropped last
         if ds is None:
             raise ApiError('The data set is no longer loaded; open the file again.', 404, 'dataset_gone')
         return ds
@@ -275,6 +293,7 @@ class App:
                 'dataset': reg, 'source': {**source, 'overlay': k}, 'dataset_id': reg['dataset_id'],
                 'x': ov['x'], 'y': ov['y'], 'lo': ov['lo'], 'hi': ov['hi'], 'label': ov['label'],
                 'band_label': ov['band_label'], 'style': ov['style'], 'band': bool(ov['lo'] and ov['hi']),
+                'on_figure': ov.get('on_figure', True), 'text': ov.get('text'),
                 'id': secrets.token_hex(5), 'references': out['references']})
         out['analysed_dataset'] = str(body.get('dataset_id'))
         if res.frame is not None and len(res.frame.columns):
@@ -299,7 +318,10 @@ class App:
             if not isinstance(o, dict) or not o.get('dataset_id'):
                 continue
             did = self._overlay_alias.get(o['dataset_id'], o['dataset_id'])
-            ds = self.datasets.get(did)
+            with self.lock:
+                ds = self.datasets.get(did)
+                if ds is not None:
+                    self.datasets.move_to_end(did)
             if ds is None and o.get('source'):
                 try:
                     ds_new = self.reopen(o['source'])
@@ -352,7 +374,7 @@ class App:
         need = catalog.requirements_for(spec.get('kind'), st.get('base'), st.get('cmap'), export)
         self.modules.require(self.modules.core_ids() + need)
 
-    def render(self, body, export=None):
+    def render(self, body, export=None, info=None):
         ds = self.dataset(body.get('dataset_id'))
         spec = body.get('spec') or {}
         self.check_spec(spec, export)
@@ -371,7 +393,8 @@ class App:
                                                    source=ds['source'], overlay_data=overlays, extra_data=extras)
                     return data, catalog.EXPORT_FORMATS['py']['mime']
                 dpi = body.get('dpi') if not export else (body.get('dpi') or None)
-                return plotting.render(ds['df'], spec, fmt, dpi, overlays, extras), catalog.EXPORT_FORMATS[fmt]['mime']
+                return (plotting.render(ds['df'], spec, fmt, dpi, overlays, extras, info=info),
+                        catalog.EXPORT_FORMATS[fmt]['mime'])
         except plotting.SpecError as exc:
             raise ApiError(str(exc), 422, 'spec')
         except (MissingModules, ApiError):
@@ -390,10 +413,11 @@ class App:
                 'warnings': smart.warnings_for(mapping, body.get('kind'), len(ds['df']))}
 
     def meta(self):
-        fonts, default_spec = [], None
+        fonts, default_spec, previews = [], None, {}
         if not self.modules.missing(self.modules.core_ids()):
-            from .plotting import DEFAULT_SPEC
+            from .plotting import DEFAULT_SPEC, palette_previews
             default_spec = DEFAULT_SPEC
+            previews = palette_previews()
             try:
                 from matplotlib import font_manager
                 fonts = sorted({f.name for f in font_manager.fontManager.ttflist})
@@ -403,7 +427,7 @@ class App:
                 'styles': catalog.STYLES, 'palettes': catalog.PALETTES, 'colormaps': catalog.COLORMAPS,
                 'export_formats': catalog.EXPORT_FORMATS, 'size_presets': catalog.SIZE_PRESETS,
                 'file_formats': catalog.FILE_FORMATS, 'extensions': catalog.all_extensions(), 'fonts': fonts,
-                'default_spec': default_spec}
+                'default_spec': default_spec, 'palette_previews': previews}
 
 
 def make_handler(app, port):
@@ -528,8 +552,11 @@ def make_handler(app, port):
                 if path == '/api/recommend':
                     return self._json(app.recommend(body))
                 if path == '/api/render':
-                    data, mime = app.render(body)
-                    return self._send(200, data, mime)
+                    info = {}
+                    data, mime = app.render(body, info=info)
+                    # The colour each series really got, for the Series panel (JSON, URL-encoded).
+                    series = quote(json.dumps(info.get('series', []), ensure_ascii=False, default=json_safe))
+                    return self._send(200, data, mime, {'X-Series': series})
                 if path == '/api/export':
                     fmt = str(body.get('format') or 'png').lower()
                     if fmt not in catalog.EXPORT_FORMATS:
@@ -537,9 +564,12 @@ def make_handler(app, port):
                     data, mime = app.render(body, export=fmt)
                     ext = 'zip' if fmt == 'py' else fmt
                     fname = safe_name(body.get('filename') or 'figure', 'figure') + '.' + ext
-                    return self._send(200, data, mime, {'Content-Disposition': f'attachment; filename="{fname}"'})
+                    return self._send(200, data, mime, {'Content-Disposition': content_disposition(fname)})
                 if path == '/api/modules/refresh':
                     app.modules.refresh_async()
+                    return self._json(app.modules.status())
+                if path == '/api/modules/verify':
+                    app.modules.verify_async(force=True)
                     return self._json(app.modules.status())
                 if path == '/api/modules/install':
                     ids = body.get('ids') or []
@@ -548,7 +578,8 @@ def make_handler(app, port):
                     unknown = [i for i in ids if i not in app.modules.by_id]
                     if unknown:
                         raise ApiError('Unknown module: ' + ', '.join(unknown))
-                    job = app.modules.start_install(ids, upgrade=bool(body.get('upgrade')))
+                    job = app.modules.start_install(ids, upgrade=bool(body.get('upgrade')),
+                                                    reinstall=bool(body.get('reinstall')))
                     return self._json(job.to_dict())
                 if path.startswith('/api/jobs/') and path.endswith('/cancel'):
                     job = app.modules.job(path.split('/')[3])
@@ -593,6 +624,7 @@ def serve(port, token, session_dir, open_browser=True, max_upload_gb=20, online=
     httpd.RequestHandlerClass = make_handler(app, port)
     url = f'http://127.0.0.1:{port}/'
     modules.refresh_async()      # latest versions from PyPI, at every start
+    modules.verify_async()       # installed modules really import (separate Python, in the background)
     if not quiet:
         status = modules.status()
         print(f'PyPlotter {__version__} — {url}')

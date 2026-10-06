@@ -46,7 +46,8 @@ def run(df, p, ctx):
             params = dist.fit(v)
             ll = float(np.sum(dist.logpdf(v, *params)))
             k = len(params)
-            ks = stats.kstest(v, name, args=params)
+            # The cdf itself, not its name: SciPy ≥ 1.18 maps 'norm' to ndtr, which takes no loc/scale.
+            ks = stats.kstest(v, dist.cdf, args=params)
             rows.append({ctx.tr('distribution', 'distribuzione'): name, 'log-likelihood': ll, 'AIC': 2 * k - 2 * ll,
                          'BIC': k * np.log(v.size) - 2 * ll, 'KS D': ks.statistic, 'KS p': ks.pvalue,
                          ctx.tr('parameters', 'parametri'): ', '.join(f'{x:.5g}' for x in params)})

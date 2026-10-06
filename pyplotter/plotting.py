@@ -115,6 +115,23 @@ def palette_colors(name, n):
     return [base[i % len(base)] for i in range(n)]
 
 
+def palette_previews(n=8):
+    """Colours of the palettes that are not a fixed list, for the page's preview: each colour-map
+    palette, and the 'style' palette for every style sheet that can be loaded."""
+    out = {name: palette_colors(name, n) for name in catalog.PALETTES if name.startswith('cmap:')}
+    styles = {}
+    for key in catalog.STYLES:
+        try:
+            with warnings.catch_warnings():          # third-party style packages may warn on import
+                warnings.simplefilter('ignore')
+                with style_context({'style': {'base': key}}):
+                    styles[key] = [mcolors.to_hex(c) for c in palette_colors('style', n)]
+        except Exception:            # style sheet of a module that is not installed
+            continue
+    out['style'] = styles
+    return out
+
+
 def get_cmap(spec):
     name = spec['style'].get('cmap') or 'viridis'
     if name.startswith('cmc.'):
@@ -169,19 +186,57 @@ class Data:
         return v[np.isfinite(v)] if v.dtype.kind == 'f' else v
 
 
-class Series:
-    """Style of one plotted series: palette colour + per-column overrides."""
+class ColorLog:
+    """The colour each series and each analysis layer really got, in drawing order, so the page can
+    show them in its Series and Overlays panels (panel = figure, whatever the palette).
 
-    def __init__(self, spec):
+    Series beyond MAX_SERIES are not logged: the list travels in an HTTP header, and a panel with
+    thousands of rows (e.g. colour by a numeric column) would be useless anyway.
+    """
+
+    MAX_SERIES = 200
+
+    def __init__(self):
+        self.series, self.overlays, self._keys = [], [], set()
+
+    def add_series(self, key, label, color):
+        key = str(key)
+        if key not in self._keys and len(self.series) < self.MAX_SERIES:
+            self._keys.add(key)
+            self.series.append({'key': key, 'label': str(label), 'color': mcolors.to_hex(color)})
+
+    def add_overlay(self, oid, label, color):
+        key = f'overlay:{oid}'
+        if key not in self._keys:
+            self._keys.add(key)
+            self.overlays.append({'key': key, 'overlay': str(oid), 'label': str(label),
+                                  'color': mcolors.to_hex(color)})
+
+    def entries(self):
+        return self.series + self.overlays
+
+
+class Series:
+    """Style of one plotted series: palette colour + per-column overrides.
+
+    log: a ColorLog that records the colour each series really got.
+    """
+
+    def __init__(self, spec, log=None, n=12):
         self.spec = spec
         self.count = 0
-        self.colors = palette_colors(spec['style']['palette'], 12)
+        # A colour-map palette is sampled once per series, end to end; the others keep their full cycle.
+        palette = str(spec['style']['palette'])
+        self.colors = palette_colors(palette, n if palette.startswith('cmap:') else 12)
+        self.log = log
 
     def next(self, key, label):
         st = self.spec['style']
         over = self.spec['series'].get(str(key), {}) if key is not None else {}
         color = over.get('color') or self.colors[self.count % len(self.colors)]
         self.count += 1
+        if self.log is not None and key is not None and not str(key).startswith('overlay:'):
+            self.log.add_series(key, label, color)
         return {
             'color': color, 'label': over.get('label') or label,
             'linestyle': over.get('linestyle') or st['linestyle'],
@@ -840,7 +895,7 @@ OVERLAY_KINDS = {'line', 'scatter', 'step', 'area', 'errorbar', 'regression', 's
 def _draw_overlays(ax, spec, ser, df, overlay_data):
     """Analysis results drawn over the figure: a curve (or markers) and an optional error band.
 
-    Each overlay is {'id', 'x', 'y', 'lo', 'hi', 'label', 'band_label', 'band', 'style': {...}}; its data comes
+    Each overlay is {'id', 'x', 'y', 'lo', 'hi', 'label', 'band_label', 'band', 'text', 'style': {...}}; its data comes
     from overlay_data[id] (a DataFrame) or, when it has no data of its own, from the plotted DataFrame.
     """
     for o in spec.get('overlays') or []:
@@ -857,8 +912,13 @@ def _draw_overlays(ax, spec, ser, df, overlay_data):
         st = o.get('style') or {}
         label = o.get('label') or o['y']
         color = st.get('color') or ser.next(f'overlay:{o.get("id")}', label)['color']
+        if color == 'text':                      # the colour of the figure's text (readable on any style)
+            color = matplotlib.rcParams['text.color']
+        if ser.log is not None and o.get('id') is not None:
+            ser.log.add_overlay(o.get('id'), label, color)
         sub = frame[[c for c in dict.fromkeys(cols) if c]].apply(pd.to_numeric, errors='coerce')
         sub = sub.dropna(subset=[o['x'], o['y']]).sort_values(o['x'], kind='stable')
+        text = o.get('text') if o.get('text') in frame.columns else None
         x = sub[o['x']].to_numpy(float)
         if o.get('lo') and o.get('hi') and o.get('band', True):
             band = sub[[o['lo'], o['hi']]].notna().all(axis=1).to_numpy()
@@ -870,6 +930,13 @@ def _draw_overlays(ax, spec, ser, df, overlay_data):
         ax.plot(x, sub[o['y']].to_numpy(float), color=color, ls='none' if ls in ('', 'none') else ls,
                 lw=float(st.get('linewidth') or spec['style']['linewidth']), marker=marker,
                 ms=float(st.get('markersize') or spec['style']['markersize'] * 1.4), label=label, zorder=3)
+        if text:                                  # value labels above each point (below for minima)
+            below = marker == '^'
+            for xv, yv, tv in zip(x, sub[o['y']].to_numpy(float), frame.loc[sub.index, text]):
+                ax.annotate(str(tv), (xv, yv), xytext=(0, -9 if below else 7), textcoords='offset points',
+                            ha='center', va='top' if below else 'bottom', zorder=4,
+                            color=matplotlib.rcParams['text.color'],   # readable whatever the palette
+                            fontsize=float(spec['text']['tick_size']) * 0.9)
 
 
 EXTRA_KINDS = {'line', 'scatter', 'step', 'errorbar', 'stem', 'regression', 'area', 'hist', 'kde', 'ecdf', 'polar'}
@@ -903,10 +970,29 @@ def _layers(df, spec, extra_data):
     return layers
 
 
-def build_figure(df, spec, overlay_data=None, extra_data=None):
+def _series_count(df, spec, layers):
+    """How many coloured series the figure will have (to spread a colour-map palette over them)."""
+    if spec['kind'] == 'pie':                   # one colour per slice
+        try:
+            return max(1, len(_aggregate(Data(df, spec), spec['y'][:1])[0]))
+        except (SpecError, KeyError, ValueError, TypeError):
+            return 12
+    groups = 1
+    if spec['hue'] and spec['hue'] in df.columns:
+        groups = df[spec['hue']].nunique()
+    elif spec['kind'] in ('box', 'violin', 'strip', 'swarm') and spec['x'] in df.columns and len(spec['y']) == 1:
+        groups = df[spec['x']].nunique()
+    n = (len(spec['y']) + len(spec['y2'] or [])) * max(1, groups)
+    n += sum(len(d.spec['y']) for _, d in layers[1:])
+    n += sum(1 for o in spec.get('overlays') or [] if isinstance(o, dict) and not (o.get('style') or {}).get('color'))
+    return max(1, int(n))
+
+
+def build_figure(df, spec, overlay_data=None, extra_data=None, series_log=None):
     """Create the Matplotlib Figure. Call inside style_context(spec) and rc_context(_rc(spec)).
 
     extra_data: {extra id: DataFrame} for spec['extra'] (other files drawn in the same figure).
+    series_log: a ColorLog that records the colour given to each series and layer.
     """
     spec = normalize_spec(spec)
     kind = spec['kind']
@@ -916,9 +1002,10 @@ def build_figure(df, spec, overlay_data=None, extra_data=None):
     weight = 'bold' if spec['text']['bold_labels'] else 'normal'
 
     if kind == 'pairplot':
-        return _pairplot(fig, Data(df, spec), Series(spec), spec, weight)
+        return _pairplot(fig, Data(df, spec), Series(spec, series_log, _series_count(df, spec, [None])), spec, weight)
 
     layers = _layers(df, spec, extra_data)
+    n_series = _series_count(df, spec, layers)
     layout = spec.get('layout') or {}
     if layout.get('mode') == 'panels' and len(layers) > 1:
         n = len(layers)
@@ -935,7 +1022,7 @@ def build_figure(df, spec, overlay_data=None, extra_data=None):
             d.label_prefix = ''
             letter = f'({chr(97 + i)})' if layout.get('letters', True) else ''
             title = ' '.join(t for t in (letter, name if layout.get('titles', True) else '') if t)
-            _draw_panel(fig, ax, d, Series(spec), spec, kind, [], overlay_data, title=title, overlays=i == 0,
+            _draw_panel(fig, ax, d, Series(spec, series_log, n_series), spec, kind, [], overlay_data, title=title, overlays=i == 0,
                         outer_x=i // ncols == nrows - 1 or i + ncols >= n, outer_y=i % ncols == 0 or not share)
         if spec['text']['title']:
             fig.suptitle(spec['text']['title'], fontweight=weight)
@@ -943,7 +1030,8 @@ def build_figure(df, spec, overlay_data=None, extra_data=None):
 
     ax = fig.add_subplot(projection='polar' if kind == 'polar' else None)
     extras = [d for _, d in layers[1:]] if kind in EXTRA_KINDS else []
-    _draw_panel(fig, ax, layers[0][1], Series(spec), spec, kind, extras, overlay_data, title=spec['text']['title'])
+    _draw_panel(fig, ax, layers[0][1], Series(spec, series_log, n_series), spec, kind, extras, overlay_data,
+                title=spec['text']['title'])
     return fig
 
 
@@ -1062,10 +1150,22 @@ def _pairplot(fig, d, ser, spec, weight):
 
 
 # ------------------------------------------------------------------ output
-def render(df, spec, fmt='png', dpi=None, overlay_data=None, extra_data=None):
+def series_colors(df, spec, overlay_data=None, extra_data=None):
+    """{series key: colour} exactly as the figure draws them (other exports use it to match)."""
+    spec = normalize_spec(spec)
+    log = ColorLog()
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore')
+        with style_context(spec), rc_context(_rc(spec)):
+            build_figure(df, spec, overlay_data, extra_data, log)
+    return {e['key']: e['color'] for e in log.series}
+
+
+def render(df, spec, fmt='png', dpi=None, overlay_data=None, extra_data=None, info=None):
     """Render to bytes. fmt: png, tiff, jpg, pdf, svg or eps.
 
     overlay_data: {overlay id: DataFrame}; extra_data: {extra id: DataFrame} (other files in the figure).
+    info: dict that receives 'series': [{'key', 'label', 'color'} …] — the colours really used (ColorLog).
     """
     spec = normalize_spec(spec)
     fmt = fmt.lower()
@@ -1079,7 +1179,10 @@ def render(df, spec, fmt='png', dpi=None, overlay_data=None, extra_data=None):
     with warnings.catch_warnings():
         warnings.simplefilter('ignore')
         with style_context(spec), rc_context(_rc(spec)):
-            fig = build_figure(df, spec, overlay_data, extra_data)
+            log = ColorLog()
+            fig = build_figure(df, spec, overlay_data, extra_data, log)
+            if info is not None:
+                info['series'] = log.entries()
             buf = io.BytesIO()
             kw = {}
             if fmt == 'tiff':

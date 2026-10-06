@@ -100,6 +100,32 @@ Raise `ValueError('message')` for problems the user should fix; the message is s
 > To get the new version of a built-in analysis, disable your copy (or customise it again after
 > renaming the old one).
 
+### Recipes: ready-made paths of several analyses
+
+A **recipe** (category `'recipe'`, listed first under *Recipes*) runs several analyses in a row and
+reports the answer in plain words, e.g. *Gaussian distribution of a column* = histogram → Gaussian
+fit → normality tests → block averaging. It is an ordinary plugin with two extras:
+
+- `ctx.run('analysis_id', df, **params)` runs another analysis on any DataFrame and returns its
+  result. The **built-in** version is always used, so your customised copies never change what a
+  recipe computes.
+- `res.get('key')` / `res.error('key')` read a number from that result. Analyses publish them with
+  `r.value(label, value, error, key='mean')` (shown) or `r.keep('mean', value, error)` (not shown).
+  Keys of the built-ins: *fit_curve* — each parameter name (`mu`, `sigma`, `a`, `b`…), `r2`, `rmse`,
+  `aic`, `bic`, `bins` (histogram mode); *peaks* — `n_peaks`, `peaks` (list of {position, height,
+  prominence, fwhm, left, right});
+  *block_average* — `mean`, `sem`, `sem_naive`, `g`, `n_eff`; *autocorrelation* — `tau_int`, `g`,
+  `n_eff`; *normality* — `skew`, `kurtosis`, `shapiro_p`, `normal`; *compare_groups* — `test`, `p`,
+  `effect`, `significant`, `groups_normal`, `k`; *correlation* (first pair) — `coef`, `p`, `ci_low`,
+  `ci_high`, `n`.
+
+`r.include(res, 'Step 2 · fit', overlays=False)` adds a step's tables and references under that title
+and returns the index of its first layer; `r.overlay(..., on_figure=False)` (or setting
+`r.overlays[i]['on_figure'] = False`) keeps a layer for the result's own plot only, when its x is not
+the data's x (a curve over a histogram). `r.overlay(..., text='column')` writes that column's values above the points
+(below for marker `'^'`), e.g. peak positions. `'steps': [{'en': …, 'it': …}, …]` in `PLUGIN` lists what the
+recipe does; the panel shows it above the form. See `pyplotter/analyses/recipe_*.py`.
+
 ### Modules and licences
 
 List every registry module your plugin needs in `requires`; PyPlotter offers to install the missing
@@ -138,6 +164,15 @@ un'analisi inclusa non riceve gli aggiornamenti successivi di PyPlotter; disatti
 alla versione aggiornata. Elenca in `requires` i moduli necessari (solo
 open source, con licenza e citazione nel registro). Lancia `ValueError('messaggio')` per errori che
 l'utente deve correggere.
+
+**Ricette.** Una ricetta (categoria `'recipe'`, prima voce del menu *Ricette*) esegue più analisi in
+sequenza e dà la risposta in parole semplici. È un plugin normale con `ctx.run('id', df, **parametri)`,
+che esegue un'altra analisi (sempre la versione **inclusa**, così le tue copie personalizzate non
+cambiano i risultati di una ricetta) e restituisce il risultato; i numeri si leggono con
+`res.get('chiave')` / `res.error('chiave')`, pubblicati dalle analisi con `r.value(..., key='…')` o
+`r.keep('…', valore, errore)`. Le chiavi disponibili e `r.include(...)` / `on_figure=False` sono
+descritte sopra; `'steps'` in `PLUGIN` elenca i passi mostrati nel riquadro. Esempi:
+`pyplotter/analyses/recipe_*.py`.
 
 **Sicurezza:** i plugin sono codice Python che gira con i tuoi permessi; installa solo plugin che
 hai letto o di cui ti fidi.

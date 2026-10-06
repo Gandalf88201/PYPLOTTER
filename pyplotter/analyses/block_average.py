@@ -65,14 +65,15 @@ def run(df, p, ctx):
     sem_naive = float(table['SEM'][0])
     g = (sem_true / sem_naive) ** 2 if sem_naive > 0 else np.nan
     r = ctx.result()
-    r.value(ctx.tr('values used', 'valori usati'), y.size)
-    r.value(ctx.tr('mean', 'media'), y.mean(), sem_true)
-    r.value(ctx.tr('naive standard error (uncorrelated)', 'errore standard ingenuo (non correlato)'), sem_naive)
+    r.value(ctx.tr('values used', 'valori usati'), y.size, key='n')
+    r.value(ctx.tr('mean', 'media'), y.mean(), sem_true, key='mean')
+    r.value(ctx.tr('naive standard error (uncorrelated)', 'errore standard ingenuo (non correlato)'), sem_naive, key='sem_naive')
     r.value(ctx.tr('block-averaged standard error', 'errore standard con block averaging'), sem_true,
             float(table['SEM error'][i]))
     r.value(ctx.tr('plateau block size', 'dimensione dei blocchi al plateau'), int(table['block size'][i]))
-    r.value(ctx.tr('statistical inefficiency g', 'inefficienza statistica g'), g)
-    r.value(ctx.tr('effective independent samples', 'campioni indipendenti effettivi'), y.size / g if g else np.nan)
+    r.value(ctx.tr('statistical inefficiency g', 'inefficienza statistica g'), g, key='g')
+    r.value(ctx.tr('effective independent samples', 'campioni indipendenti effettivi'), y.size / g if g else np.nan, key='n_eff')
+    r.keep('sem', sem_true, float(table['SEM error'][i]))
     r.text(ctx.tr('Check the plot: the SEM should level off (plateau). If it keeps rising, the series is '
                   'too short for a reliable error.',
                   'Controlla il grafico: lo SEM deve stabilizzarsi (plateau). Se continua a salire, la serie è '

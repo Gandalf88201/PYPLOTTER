@@ -91,11 +91,12 @@ def run(df, p, ctx):
     r.value('N', n)
     r.value(ctx.tr('mean', 'media'), y.mean())
     r.value(ctx.tr('variance', 'varianza'), y.var(ddof=1))
-    r.value(ctx.tr('integrated autocorrelation time τ_int', 'tempo di autocorrelazione integrato τ_int'), tau_int * dt, None, unit)
+    r.value(ctx.tr('integrated autocorrelation time τ_int', 'tempo di autocorrelazione integrato τ_int'), tau_int * dt, None, unit, key='tau_int')
     r.value(ctx.tr('summation window', 'finestra di somma'), window * dt, None, unit)
     g = max(1.0, 2 * tau_int)
-    r.value(ctx.tr('statistical inefficiency g = 2τ_int', 'inefficienza statistica g = 2τ_int'), g)
-    r.value(ctx.tr('effective independent samples N/g', 'campioni indipendenti effettivi N/g'), n / g)
+    r.value(ctx.tr('statistical inefficiency g = 2τ_int', 'inefficienza statistica g = 2τ_int'), g, key='g')
+    r.value(ctx.tr('effective independent samples N/g', 'campioni indipendenti effettivi N/g'), n / g, key='n_eff')
+    r.keep('unit', unit)
     r.value(ctx.tr('standard error of the mean (corrected)', 'errore standard della media (corretto)'),
             y.std(ddof=1) * np.sqrt(g / n))
     below = np.where(rho < np.exp(-1))[0]

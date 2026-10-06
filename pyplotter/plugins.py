@@ -22,7 +22,7 @@ BUILTIN_DIR = Path(__file__).resolve().parent / 'analyses'
 USER_DIR = Path(os.environ.get('PYPLOTTER_PLUGINS') or
                 Path(os.environ.get('PYPLOTTER_HOME') or Path.home() / '.pyplotter') / 'plugins')
 PARAM_TYPES = {'column', 'columns', 'int', 'float', 'bool', 'choice', 'text'}
-CATEGORIES = ['fit', 'timeseries', 'stats', 'signal', 'custom']
+CATEGORIES = ['recipe', 'fit', 'timeseries', 'stats', 'signal', 'custom']
 MAX_TABLE_ROWS = 5000
 
 
@@ -39,11 +39,29 @@ class Result:
         self.summary, self.tables, self.texts, self.refs = [], [], [], []
         self.frame, self.plot, self.name = None, None, None
         self.overlays = []
+        self.out = {}            # key -> (value, error): numbers other analyses (recipes) can read
 
-    def value(self, label, value, error=None, unit=''):
-        """One line of the summary table: label, value (± error) and unit."""
+    def value(self, label, value, error=None, unit='', key=None):
+        """One line of the summary table: label, value (± error) and unit.
+
+        key: a fixed, language-independent name under which recipes find this number (see keep).
+        """
         self.summary.append({'label': str(label), 'value': _cell(value), 'error': _cell(error), 'unit': str(unit or '')})
+        if key:
+            self.keep(key, value, error)
         return self
+
+    def keep(self, key, value, error=None):
+        """Store a number for recipes without showing it (read back with get)."""
+        self.out[str(key)] = (value, error)
+        return self
+
+    def get(self, key, default=None):
+        """Value stored with value(..., key=) or keep(); default if the analysis did not provide it."""
+        return self.out.get(key, (default, None))[0]
+
+    def error(self, key):
+        return self.out.get(key, (None, None))[1]
 
     def table(self, title, data, index=False):
         """A table from a DataFrame, a list of dicts or a dict of lists."""
@@ -70,21 +88,44 @@ class Result:
         self.frame, self.plot, self.name = frame.reset_index(drop=True), plot or {}, name
         return self
 
-    def overlay(self, frame, x, y, lo=None, hi=None, label=None, band_label=None, style=None):
+    def overlay(self, frame, x, y, lo=None, hi=None, label=None, band_label=None, style=None, on_figure=True,
+                text=None):
         """A layer that can be drawn over the original figure: curve x→y and optional band lo…hi.
 
         Use the same x units as the analysed data (e.g. the fitted curve on a fine grid with its
         95 % confidence band). style: {'color', 'linestyle', 'linewidth', 'marker', 'band_alpha'}.
+        on_figure=False: the layer belongs only to this result's own plot (its x is not the data's x,
+        e.g. a curve over a histogram computed by the analysis).
+        text: a column of labels written above each point (below for style marker '^'), e.g. peak positions.
         Returns the overlay index, which a data plot can use as {'overlays': [{'ref': index}]}.
         """
         if not isinstance(frame, pd.DataFrame):
             frame = pd.DataFrame(frame)
-        for c in (x, y, lo, hi):
+        for c in (x, y, lo, hi, text):
             if c is not None and c not in frame.columns:
                 raise PluginError(f'Overlay column not found: {c}')
         self.overlays.append({'frame': frame.reset_index(drop=True), 'x': x, 'y': y, 'lo': lo, 'hi': hi,
-                              'label': str(label or y), 'band_label': band_label, 'style': dict(style or {})})
+                              'label': str(label or y), 'band_label': band_label, 'style': dict(style or {}),
+                              'on_figure': bool(on_figure), 'text': text})
         return len(self.overlays) - 1
+
+    def include(self, sub, title, overlays=False):
+        """Add another analysis' result (from ctx.run) as one step of this one: its summary and tables
+        appear under the step title, its texts and references are kept. overlays=True also takes its
+        layers (on_figure as they were). Returns the index of its first overlay in this result."""
+        first = len(self.overlays)
+        if sub.summary:
+            it = self.lang == 'it'
+            self.tables.append({'title': f'{title} · ' + ('riepilogo' if it else 'summary'),
+                                'columns': ['grandezza', 'valore'] if it else ['quantity', 'value'],
+                                'rows': [[s['label'], _join(s)] for s in sub.summary]})
+        for tb in sub.tables:
+            self.tables.append({**tb, 'title': f'{title} · {tb["title"]}'})
+        self.texts.extend(f'{title}: {t}' for t in sub.texts)
+        self.refs.extend(sub.refs)
+        if overlays:
+            self.overlays.extend(dict(o) for o in sub.overlays)
+        return first
 
     def cite(self, *refs):
         self.refs.extend(str(r) for r in refs if r)
@@ -94,15 +135,26 @@ class Result:
 class Context:
     """Helpers handed to run(): language, translations, result builder, numeric column access."""
 
-    def __init__(self, lang='en', spec=None):
+    def __init__(self, lang='en', spec=None, runner=None):
         self.lang = lang if lang in ('en', 'it') else 'en'
         self.spec = spec or {}
+        self._runner = runner
 
     def tr(self, en, it=None):
         return it if (self.lang == 'it' and it) else en
 
     def result(self):
         return Result(self.lang)
+
+    def run(self, pid, df, **params):
+        """Run another analysis on df and return its Result (recipes are built from these steps).
+
+        The built-in version of the analysis is used, so a recipe gives the same numbers whatever
+        customised copies are in the plugins folder. Parameters not given take their defaults.
+        """
+        if self._runner is None:
+            raise PluginError('ctx.run is not available here.')
+        return self._runner(pid, df, params)
 
     @staticmethod
     def numeric(df, column, dropna=True):
@@ -122,6 +174,16 @@ class Context:
         xs = self.numeric(df, x, dropna=False) if x else pd.Series(np.arange(len(df), dtype=float), index=df.index)
         ok = xs.notna() & ys.notna()
         return xs[ok].to_numpy(dtype=float), ys[ok].to_numpy(dtype=float)
+
+
+def _join(s):
+    """'value ± error unit' text of a summary entry."""
+    def num(v):
+        return f'{v:.6g}' if isinstance(v, float) else str(v)
+    text = num(s['value']) if s['value'] is not None else '—'
+    if s['error'] is not None:
+        text += ' ± ' + num(s['error'])
+    return (text + ' ' + s['unit']).strip()
 
 
 def _cell(v):
@@ -150,6 +212,7 @@ class PluginManager:
 
     def reload(self):
         self.plugins, self.errors = {}, []
+        self.builtins = {}       # the built-in versions, also when a user plugin replaces them (for recipes)
         for source, folder in (('builtin', self.builtin_dir), ('user', self.user_dir)):
             if not folder.is_dir():
                 continue
@@ -168,6 +231,8 @@ class PluginManager:
                     continue
                 plugin['overrides'] = bool(previous and previous['source'] == 'builtin' and source == 'user')
                 self.plugins[plugin['id']] = plugin
+                if source == 'builtin':
+                    self.builtins[plugin['id']] = plugin
         return self
 
     def _load(self, path, source):
@@ -188,7 +253,7 @@ class PluginManager:
         for p in sorted(self.plugins.values(), key=lambda p: (CATEGORIES.index(p['category'])
                                                                if p['category'] in CATEGORIES else 99, p['order'], p['id'])):
             out.append({k: p[k] for k in ('id', 'name', 'description', 'category', 'params', 'requires',
-                                           'references', 'source', 'file', 'overrides')}
+                                           'references', 'source', 'file', 'overrides', 'steps')}
                        | {'missing': missing(p['requires'])})
         return {'plugins': out, 'errors': self.errors, 'user_dir': str(self.user_dir)}
 
@@ -198,10 +263,17 @@ class PluginManager:
             raise PluginError(f'Unknown analysis: {pid}')
         return p
 
-    def run(self, pid, df, params, lang='en', spec=None):
-        plugin = self.get(pid)
+    def run(self, pid, df, params, lang='en', spec=None, builtin=False, depth=0):
+        plugin = self.builtins.get(pid) if builtin else None
+        plugin = plugin or self.get(pid)
+        if depth > 5:
+            raise PluginError('Recipes nested too deeply (a recipe that calls itself?).')
         values = coerce_params(plugin['params'], params or {}, df, roles(spec or {}, df))
-        ctx = Context(lang, spec)
+
+        def runner(sub_id, sub_df, sub_params):
+            return self.run(sub_id, sub_df, sub_params, lang, spec, builtin=True, depth=depth + 1)[2]
+
+        ctx = Context(lang, spec, runner)
         result = plugin['module'].run(df, values, ctx)
         if not isinstance(result, Result):
             raise PluginError('run() must return ctx.result() (a Result).')
@@ -239,9 +311,9 @@ class PluginManager:
             n += 1
             path = self.user_path(f'{slug}_{n}.py')
         pid = path.stem
-        title = str(name or 'My analysis').replace("'", ' ').strip()
+        title = ' '.join(str(name or 'My analysis').split())     # one line; repr() escapes quotes and backslashes
         code = (TEMPLATE.replace('my_analysis', pid)
-                .replace("{'en': 'My analysis', 'it': 'La mia analisi'}", f"{{'en': '{title}', 'it': '{title}'}}"))
+                .replace("{'en': 'My analysis', 'it': 'La mia analisi'}", f"{{'en': {title!r}, 'it': {title!r}}}"))
         return self.save(path.name, code)
 
     def customize(self, pid):
@@ -306,7 +378,8 @@ def validate_meta(meta):
     return {'id': pid, 'name': _bilingual(meta.get('name'), pid), 'description': _bilingual(meta.get('description'), ''),
             'category': category if category in CATEGORIES else 'custom', 'params': params,
             'requires': [str(r) for r in meta.get('requires', [])], 'references': [str(r) for r in meta.get('references', [])],
-            'order': int(meta.get('order', 50))}
+            'order': int(meta.get('order', 50)),
+            'steps': [_bilingual(s) for s in meta.get('steps', [])]}     # recipes: what they do, in order
 
 
 ROLE_NAMES = {'x', 'y', 'y2', 'xerr', 'yerr', 'hue', 'z', 'ys', 'xs'}

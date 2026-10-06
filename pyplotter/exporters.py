@@ -85,7 +85,8 @@ def script_bundle(df, spec, name='figure', modules=(), extra_refs=(), source=Non
         frame = (overlay_data or {}).get(o.get('id'))
         if frame is not None:
             fname = f'overlay_{k + 1}.csv'
-            cols = [c for c in dict.fromkeys([o.get('x'), o.get('y'), o.get('lo'), o.get('hi')]) if c]
+            cols = [c for c in dict.fromkeys([o.get('x'), o.get('y'), o.get('lo'), o.get('hi'), o.get('text')])
+                    if c and c in frame.columns]
             overlay_files[fname] = frame[cols].to_csv(index=False)
             o['file'] = fname
         clean.append(o)
@@ -131,13 +132,17 @@ def plotly_html(df, spec, overlay_data=None, extra_data=None):
     d = plotting.Data(df, spec)
     colors = plotting.palette_colors(spec['style']['palette'], 12) if spec['style']['palette'] in PALETTES \
         else plotting.palette_colors('okabe-ito', 12)
+    try:                        # the colours of the static figure, so both exports look the same
+        real = plotting.series_colors(df, spec, overlay_data, extra_data)
+    except Exception:
+        real = {}
     fig = go.Figure()
     st = spec['style']
     counter = [0]
 
     def color(key):
         over = spec['series'].get(str(key), {})
-        c = over.get('color') or colors[counter[0] % len(colors)]
+        c = over.get('color') or real.get(str(key)) or colors[counter[0] % len(colors)]
         counter[0] += 1
         return c
 
@@ -227,8 +232,9 @@ def plotly_html(df, spec, overlay_data=None, extra_data=None):
         fig.add_trace(go.Histogram2d(x=x, y=y, colorscale=cscale, nbinsx=int(st['gridsize']), nbinsy=int(st['gridsize'])))
     elif kind == 'pie':
         table, _ = plotting._aggregate(d, ycols[:1])
-        fig.add_trace(go.Pie(labels=[str(c) for c in table.index], values=table.iloc[:, 0].to_numpy(),
-                             marker={'colors': colors}, sort=False))
+        labels = [str(c) for c in table.index]
+        fig.add_trace(go.Pie(labels=labels, values=table.iloc[:, 0].to_numpy(),
+                             marker={'colors': [color(f'{table.columns[0]}::{c}') for c in labels]}, sort=False))
 
     if kind in ('line', 'scatter', 'step', 'errorbar', 'area', 'regression'):
         for e in spec.get('extra') or []:
@@ -253,6 +259,8 @@ def plotly_html(df, spec, overlay_data=None, extra_data=None):
         sub = frame.sort_values(o['x'])
         st = o.get('style') or {}
         c = st.get('color') or color(f'overlay:{o.get("id")}')
+        if c == 'text':                       # "the figure's text colour" (see plotting._draw_overlays)
+            c = '#444444'
         name = o.get('label') or o['y']
         if o.get('lo') in sub and o.get('hi') in sub and o.get('band', True):
             fig.add_trace(go.Scatter(x=sub[o['x']], y=sub[o['hi']], mode='lines', line={'width': 0}, showlegend=False,
@@ -260,7 +268,10 @@ def plotly_html(df, spec, overlay_data=None, extra_data=None):
             fig.add_trace(go.Scatter(x=sub[o['x']], y=sub[o['lo']], mode='lines', line={'width': 0}, fill='tonexty',
                                      fillcolor=c, opacity=0.25, name=f'{name} ({o.get("band_label") or "95% CI"})'))
         marker_only = st.get('linestyle') in ('none', '')
-        fig.add_trace(go.Scatter(x=sub[o['x']], y=sub[o['y']], name=name, mode='markers' if marker_only else 'lines',
+        labels = sub[o['text']].astype(str) if o.get('text') in sub else None
+        mode = ('markers' if marker_only else 'lines') + ('+text' if labels is not None else '')
+        fig.add_trace(go.Scatter(x=sub[o['x']], y=sub[o['y']], name=name, mode=mode, text=labels,
+                                 textposition='bottom center' if st.get('marker') == '^' else 'top center',
                                  line={'color': c, 'dash': 'dash' if st.get('linestyle') == '--' else None},
                                  marker={'color': c, 'size': 9, 'symbol': 'triangle-down' if st.get('marker') == 'v' else 'circle'}))
 

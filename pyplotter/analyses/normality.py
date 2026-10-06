@@ -59,9 +59,11 @@ def run(df, p, ctx):
                                 'Kolmogorov–Smirnov (parametri stimati, approssimato)'),
                  'statistic': ks, 'p': pks, ctx.tr('verdict', 'esito'): yes if pks >= a else no})
     r = ctx.result()
-    r.value('N', n)
-    r.value(ctx.tr('skewness', 'asimmetria'), stats.skew(v, bias=False))
-    r.value(ctx.tr('excess kurtosis', 'curtosi in eccesso'), stats.kurtosis(v, bias=False))
+    r.value('N', n, key='n')
+    r.value(ctx.tr('skewness', 'asimmetria'), stats.skew(v, bias=False), key='skew')
+    r.value(ctx.tr('excess kurtosis', 'curtosi in eccesso'), stats.kurtosis(v, bias=False), key='kurtosis')
+    r.keep('shapiro_p', pw)
+    r.keep('normal', all(row[ctx.tr('verdict', 'esito')] == yes for row in rows))
     r.table(ctx.tr('Normality tests', 'Test di normalità'), rows)
     (osm, osr), (slope, intercept, rr) = stats.probplot(v, dist='norm')
     qq = pd.DataFrame({ctx.tr('theoretical quantiles', 'quantili teorici'): osm,

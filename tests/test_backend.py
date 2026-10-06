@@ -6,6 +6,7 @@ from pathlib import Path
 import sqlite3
 import sys
 import tempfile
+import time
 import unittest
 import zipfile
 
@@ -90,6 +91,30 @@ class TestModules(unittest.TestCase):
             self.assertTrue(st['core_ready'])
             self.assertEqual(len(st['modules']), len(mm.modules))
             self.assertTrue(all('license' in r for r in st['modules']))
+            self.assertTrue(all(r['works'] is None for r in st['modules']))   # not checked yet
+
+    def test_import_check(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            reg = Path(tmp) / 'registry.json'
+            reg.write_text(json.dumps({'schema': 'pyplotter-registry/1', 'modules': [
+                {'id': 'numpy', 'pip': 'numpy', 'import': 'numpy', 'category': 'core'},
+                # installed according to pip, but the import fails
+                {'id': 'broken', 'pip': 'numpy', 'import': 'pyplotter_no_such_module', 'category': 'core'},
+                {'id': 'absent', 'pip': 'pyplotter-no-such-dist', 'import': 'x', 'category': 'core'},
+            ]}), encoding='utf-8')
+            mm = ModuleManager(registry_path=reg, state_dir=tmp, online=False)
+            mm.verify_async()
+            for _ in range(600):
+                if mm.check_state['state'] == 'done':
+                    break
+                time.sleep(0.1)
+            rows = {r['id']: r for r in mm.status()['modules']}
+            self.assertEqual(mm.status()['checks']['state'], 'done')
+            self.assertIs(rows['numpy']['works'], True)
+            self.assertIs(rows['broken']['works'], False)
+            self.assertIn('ModuleNotFoundError', rows['broken']['import_error'])
+            self.assertIsNone(rows['absent']['works'])
+            self.assertEqual(mm._specs(['numpy'], False, reinstall=True), [f'numpy=={np.__version__}'])
 
 
 class TestReaders(TempDir):
@@ -271,6 +296,109 @@ class TestPlotting(unittest.TestCase):
         self.assertTrue(plotting.render(df, spec, 'eps').startswith(b'%!PS'))
         self.assertTrue(plotting.render(df, spec, 'tiff')[:2] in (b'II', b'MM'))
         self.assertTrue(plotting.render(df, spec, 'jpg').startswith(b'\xff\xd8'))
+
+    def test_series_colours_reported(self):
+        """The colours reported for the Series panel are the ones drawn, for every kind of palette."""
+        import copy
+        df = samples.make('cloud')
+        for palette, base in (('okabe-ito', 'publication'), ('style', 'ggplot'), ('cmap:viridis', 'publication')):
+            spec = copy.deepcopy(plotting.DEFAULT_SPEC)
+            spec.update(kind='line', x='x', y=['y', 'z'])
+            spec['style'].update(palette=palette, base=base)
+            info = {}
+            plotting.render(df, spec, 'png', 30, info=info)
+            colors = [e['color'] for e in info['series']]
+            self.assertEqual([e['key'] for e in info['series']], ['y', 'z'])
+            self.assertEqual(len(set(colors)), 2, palette)
+            self.assertEqual(plotting.series_colors(df, spec), dict(zip(['y', 'z'], colors)))
+        spec['series'] = {'z': {'color': '#123456'}}
+        self.assertEqual(plotting.series_colors(df, spec)['z'], '#123456')
+        # one series + an analysis curve without its own colour: two different colours
+        for palette in ('okabe-ito', 'style', 'cmap:viridis'):
+            spec = copy.deepcopy(plotting.DEFAULT_SPEC)
+            spec.update(kind='line', x='x', y=['y'])
+            spec['style']['palette'] = palette
+            spec['overlays'] = [{'id': 'o1', 'x': 'x', 'y': 'z', 'label': 'curve'}]
+            ser = plotting.Series(plotting.normalize_spec(spec), n=2 if palette.startswith('cmap:') else 1)
+            self.assertNotEqual(ser.next('y', 'y')['color'], ser.next('overlay:o1', 'curve')['color'], palette)
+        # analysis layers: the colour each one was drawn with is reported too (Overlays panel)
+        for palette in ('okabe-ito', 'style', 'cmap:viridis'):
+            spec = copy.deepcopy(plotting.DEFAULT_SPEC)
+            spec.update(kind='line', x='x', y=['y'])
+            spec['style']['palette'] = palette
+            spec['overlays'] = [{'id': 'free', 'x': 'x', 'y': 'z'},
+                                {'id': 'fixed', 'x': 'x', 'y': 'w', 'style': {'color': '#abcdef'}}]
+            info = {}
+            plotting.render(df, spec, 'png', 30, info=info)
+            layers = {e['overlay']: e['color'] for e in info['series'] if e.get('overlay')}
+            series = [e['color'] for e in info['series'] if not e.get('overlay')]
+            self.assertEqual(layers['fixed'], '#abcdef')
+            self.assertNotEqual(layers['free'], series[0], palette)
+            self.assertNotIn('overlay:free', plotting.series_colors(df, spec))
+        # categories of a box plot are separate series
+        spec = copy.deepcopy(plotting.DEFAULT_SPEC)
+        spec.update(kind='box', x='class', y=['y'])
+        self.assertEqual(len(plotting.series_colors(df, spec)), df['class'].nunique())
+
+    def test_pie_and_many_groups_colours(self):
+        import copy
+        from urllib.parse import quote
+        df = samples.make('groups')
+        spec = copy.deepcopy(plotting.DEFAULT_SPEC)
+        spec.update(kind='pie', x='Group', y=['Response (a.u.)'])
+        spec['style']['palette'] = 'cmap:viridis'
+        self.assertEqual(len(set(plotting.series_colors(df, spec).values())), 4)    # one colour per slice
+        cloud = samples.make('cloud').head(3000)
+        spec = copy.deepcopy(plotting.DEFAULT_SPEC)
+        spec.update(kind='scatter', x='x', y=['y'], hue='z')                      # 3000 groups
+        info = {}
+        plotting.render(cloud, spec, 'png', 20, info=info)
+        self.assertLessEqual(len(info['series']), plotting.ColorLog.MAX_SERIES)
+        self.assertLess(len(quote(json.dumps(info['series'], ensure_ascii=False))), 64 * 1024)
+
+    def test_download_name_header(self):
+        from pyplotter.server import content_disposition
+        value = content_disposition('Spettro_Δ_α.pdf')
+        value.encode('latin-1')                                    # headers must be Latin-1
+        self.assertIn("filename*=UTF-8''Spettro_%CE%94_%CE%B1.pdf", value)
+
+    def test_datasets_dropped_least_recently_used(self):
+        from pyplotter import server
+        with tempfile.TemporaryDirectory() as tmp:
+            app = server.App('t' * 32, tmp, ModuleManager(state_dir=tmp, online=False), 10 ** 9)
+            main = app._register(pd.DataFrame({'a': [1.0, 2.0]}), 'main', {'sample': 'x'}, {})['dataset_id']
+            for i in range(server.MAX_DATASETS * 2):
+                app._register(pd.DataFrame({'a': [float(i)]}), f'r{i}', {'sample': 'x'}, {})
+                app.dataset(main)                                  # the figure is redrawn: still in use
+            self.assertIn(main, app.datasets)
+            self.assertLessEqual(len(app.datasets), server.MAX_DATASETS)
+
+    def test_palette_previews(self):
+        pv = plotting.palette_previews()
+        self.assertEqual(len(pv['cmap:viridis']), 8)
+        self.assertIn('publication', pv['style'])
+
+    def test_import_checks_remembered(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            mm = ModuleManager(state_dir=tmp, online=False)
+            mm.checks = {'numpy': {'version': mm.installed('numpy'), 'ok': True, 'error': '', 'gen': 0}}
+            mm._write_checks()
+            again = ModuleManager(state_dir=tmp, online=False)
+            self.assertTrue(again.checks['numpy']['ok'])
+            self.assertIs(again.status()['modules'][0]['works'], True)
+
+    def test_overlay_value_labels(self):
+        """A layer with a text column writes its values above the points (peak positions)."""
+        import copy
+        df = samples.make('spectra')
+        spec = copy.deepcopy(plotting.DEFAULT_SPEC)
+        spec.update(kind='line', x='Wavelength (nm)', y=['Sample A'])
+        frame = pd.DataFrame({'Wavelength (nm)': [450.0, 520.0], 'top': [1.0, 0.5], 'text': ['450', '520']})
+        spec['overlays'] = [{'id': 'p', 'dataset_id': 'd', 'x': 'Wavelength (nm)', 'y': 'top', 'text': 'text',
+                             'style': {'linestyle': 'none', 'marker': 'v'}}]
+        svg = plotting.render(df, spec, 'svg', overlay_data={'p': frame}).decode('utf-8')
+        self.assertIn('>450<', svg.replace(' ', ''))
+        self.assertIn('>520<', svg.replace(' ', ''))
 
     def test_customisation(self):
         df = samples.make('spectra')

@@ -18,9 +18,19 @@ PLUGIN = {
         {'id': 'distance', 'type': 'int', 'default': 1, 'min': 1,
          'label': {'en': 'Minimum distance (points)', 'it': 'Distanza minima (punti)'}},
         {'id': 'minima', 'type': 'bool', 'default': False, 'label': {'en': 'Find minima instead', 'it': 'Cerca i minimi'}},
+        {'id': 'labels', 'type': 'bool', 'default': True,
+         'label': {'en': 'Write the position above each peak', 'it': 'Scrivi la posizione sopra ogni picco'}},
     ],
     'references': ['Virtanen, P. et al. SciPy 1.0. Nature Methods 17, 261–272 (2020). doi:10.1038/s41592-019-0686-2'],
 }
+
+
+def label_of(v):
+    """Short text for a number: 4 significant digits, no exponent for ordinary values."""
+    v = float(v)
+    if v != 0 and (abs(v) >= 1e6 or abs(v) < 1e-3):
+        return f'{v:.3g}'
+    return np.format_float_positional(v, precision=4, unique=False, fractional=False, trim='-')
 
 
 def run(df, p, ctx):
@@ -36,7 +46,7 @@ def run(df, p, ctx):
     widths, wh, left, right = signal.peak_widths(s, idx, rel_height=0.5)
     xi = np.arange(x.size)
     lx, rx = np.interp(left, xi, x), np.interp(right, xi, x)
-    rows = []
+    rows, found = [], []
     for k, i in enumerate(idx):
         lo, hi = int(props['left_bases'][k]), int(props['right_bases'][k])
         seg_x, seg_y = x[lo:hi + 1], y[lo:hi + 1]
@@ -44,8 +54,12 @@ def run(df, p, ctx):
         rows.append({ctx.tr('position', 'posizione'): x[i], ctx.tr('height', 'altezza'): y[i],
                      ctx.tr('prominence', 'prominenza'): props['prominences'][k], 'FWHM': rx[k] - lx[k],
                      ctx.tr('area above baseline', 'area sopra la linea di base'): abs(trapezoid(seg_y - base, seg_x))})
+        found.append({'index': int(i), 'position': float(x[i]), 'height': float(y[i]),
+                      'prominence': float(props['prominences'][k]), 'fwhm': float(rx[k] - lx[k]),
+                      'left': float(x[lo]), 'right': float(x[hi])})
     r = ctx.result()
-    r.value(ctx.tr('peaks found', 'picchi trovati'), len(idx))
+    r.value(ctx.tr('peaks found', 'picchi trovati'), len(idx), key='n_peaks')
+    r.keep('peaks', found)                  # for recipes: position, height, prominence, fwhm, left, right
     r.value(ctx.tr('prominence threshold', 'soglia di prominenza'), prom)
     r.table(ctx.tr('Peaks', 'Picchi'), rows)
     xname = p['x'] or 'index'
@@ -53,7 +67,12 @@ def run(df, p, ctx):
     marks[idx] = y[idx]
     label = ctx.tr('peaks', 'picchi')
     data = pd.DataFrame({xname: x, p['y']: y, label: marks})
-    r.overlay(pd.DataFrame({xname: x[idx], label: y[idx]}), xname, label, label=label,
+    marks_frame = pd.DataFrame({xname: x[idx], label: y[idx]})
+    text = None
+    if p['labels']:
+        text = ctx.tr('position', 'posizione')
+        marks_frame[text] = [label_of(v) for v in x[idx]]
+    r.overlay(marks_frame, xname, label, label=label, text=text,
               style={'linestyle': 'none', 'marker': '^' if p['minima'] else 'v'})
     r.data(data, name=f'{label} · {p["y"]}', plot={'kind': 'line', 'x': xname, 'y': [p['y'], label],
                                                    'series': {label: {'linestyle': 'none', 'marker': 'v'}}})

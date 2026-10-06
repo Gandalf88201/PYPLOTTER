@@ -130,11 +130,15 @@ def run(df, p, ctx):
         res = stats.kruskal(*samples)
         allv = np.concatenate(samples)
         stat_name, effect = 'H', ('ε²', (res.statistic - k + 1) / (allv.size - k))
-    r.value(ctx.tr('test', 'test'), TESTS[test][ctx.lang])
-    r.value(stat_name, res.statistic)
-    r.value('p', res.pvalue)
+    r.value(ctx.tr('test', 'test'), TESTS[test][ctx.lang], key='test')
+    r.value(stat_name, res.statistic, key='statistic')
+    r.value('p', res.pvalue, key='p')
     if effect:
-        r.value(effect[0], effect[1])
+        r.value(effect[0], effect[1], key='effect')
+        r.keep('effect_name', effect[0])
+    r.keep('groups_normal', normal)
+    r.keep('significant', bool(res.pvalue < a))
+    r.keep('k', k)
     r.value(ctx.tr('conclusion', 'conclusione'),
             ctx.tr(f'significant difference (p < {a:g})', f'differenza significativa (p < {a:g})') if res.pvalue < a
             else ctx.tr(f'no significant difference (p ≥ {a:g})', f'nessuna differenza significativa (p ≥ {a:g})'))

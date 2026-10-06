@@ -62,6 +62,8 @@ Each analysis lists its references in the app next to the result; they are colle
 - AIC — Akaike, H. A new look at the statistical model identification. *IEEE Trans. Autom. Control* 19, 716–723 (1974). doi:10.1109/TAC.1974.1100705
 - Savitzky–Golay filter — Savitzky, A. & Golay, M. J. E. Smoothing and differentiation of data by simplified least squares procedures. *Anal. Chem.* 36, 1627–1639 (1964). doi:10.1021/ac60214a047
 - Welch power spectrum — Welch, P. The use of fast Fourier transform for the estimation of power spectra. *IEEE Trans. Audio Electroacoust.* 15, 70–73 (1967). doi:10.1109/TAU.1967.1161901
+- Automatic equilibration detection (recipe *Equilibration of a simulation*) — Chodera, J. D. A simple method for automated equilibration detection in molecular simulations. *J. Chem. Theory Comput.* 12, 1799–1805 (2016). doi:10.1021/acs.jctc.5b00784
+- Histogram bin width (recipe *Gaussian distribution*) — Freedman, D. & Diaconis, P. On the histogram as a density estimator: L2 theory. *Z. Wahrscheinlichkeitstheorie verw. Gebiete* 57, 453–476 (1981). doi:10.1007/BF01025868
 
 ## Journal size presets / Formati rivista
 

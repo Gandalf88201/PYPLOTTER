@@ -4,6 +4,8 @@ Standard library only. The registry (registry.json) lists every package PyPlotte
 At each start the latest versions are fetched from PyPI in the background and cached in
 ~/.pyplotter/pypi-cache.json, so the list also works offline. Installs run
 ``python -m pip`` in this interpreter's environment and report a single progress value.
+Installed modules are also imported once in a separate Python (at start and after every
+install), so a package that pip lists but that cannot be loaded is reported as broken.
 """
 import importlib
 import importlib.metadata as metadata
@@ -26,6 +28,16 @@ STATE_DIR = Path(os.environ.get('PYPLOTTER_HOME') or Path.home() / '.pyplotter')
 PYPI_URL = 'https://pypi.org/pypi/{}/json'
 PIP_MIN = (24, 1)          # first pip with --progress-bar raw
 LOG_TAIL = 400
+IMPORT_TIMEOUT = 180       # seconds for one import check (first imports compile and build caches)
+# Run in a separate Python: a broken module cannot crash the service, and this process does not
+# load modules it does not use (which would also mark them as needing a restart after an update).
+IMPORT_CHECK = '''import importlib, sys
+try:
+    importlib.import_module(sys.argv[1])
+except BaseException as exc:
+    print(f"{type(exc).__name__}: {exc}")
+    sys.exit(1)
+'''
 
 
 class MissingModules(Exception):
@@ -235,6 +247,12 @@ class ModuleManager:
         self.restart_required = set()
         self._cache = self._read_cache()
         self.refresh_state = {'state': 'idle', 'checked_at': self._cache.get('checked_at'), 'error': ''}
+        self.check_file = self.state_dir / 'import-check.json'
+        self.checks = self._read_checks()   # id -> {'version', 'ok', 'error', 'gen'}: last import check
+        self.check_state = {'state': 'idle', 'checked_at': None}
+        self._check_gen = 0
+        self._check_again = False
+        self._check_lock = threading.Lock()
 
     # ------------------------------------------------------------ status
     def _read_cache(self):
@@ -250,6 +268,27 @@ class ModuleManager:
             tmp = self.cache_file.with_suffix('.tmp')
             tmp.write_text(json.dumps(self._cache, indent=1), encoding='utf-8')
             tmp.replace(self.cache_file)
+        except OSError:
+            pass
+
+    def _read_checks(self):
+        """Import checks of earlier runs with this same Python, so a start only re-checks what changed."""
+        try:
+            data = json.loads(self.check_file.read_text(encoding='utf-8'))
+            if data.get('python') == self.python and isinstance(data.get('checks'), dict):
+                return {k: {**v, 'gen': 0} for k, v in data['checks'].items() if k in self.by_id}
+        except Exception:
+            pass
+        return {}
+
+    def _write_checks(self):
+        try:
+            self.state_dir.mkdir(parents=True, exist_ok=True)
+            tmp = self.check_file.with_suffix('.tmp')
+            tmp.write_text(json.dumps({'python': self.python, 'checks': {
+                k: {'version': v['version'], 'ok': v['ok'], 'error': v['error']} for k, v in self.checks.items()}},
+                indent=1), encoding='utf-8')
+            tmp.replace(self.check_file)
         except OSError:
             pass
 
@@ -274,6 +313,9 @@ class ModuleManager:
         for m in self.modules:
             inst = installed_version(m['pip'])
             latest = self._cache['versions'].get(m['pip'])
+            check = self.checks.get(m['id'])
+            if not (inst and check and check['version'] == inst):
+                check = None
             rows.append({
                 'id': m['id'], 'pip': m['pip'], 'category': m['category'], 'core': bool(m.get('core')),
                 'description': m.get('description', {}), 'url': m.get('url', ''), 'min': m.get('min', ''),
@@ -282,8 +324,10 @@ class ModuleManager:
                 'outdated': bool(inst and m.get('min') and version_tuple(inst) < version_tuple(m['min'])),
                 'update': bool(inst and latest and version_tuple(latest) > version_tuple(inst)),
                 'restart': m['id'] in self.restart_required,
+                'works': check['ok'] if check else None,      # None: not checked yet
+                'import_error': check['error'] if check else '',
             })
-        return {'modules': rows, 'refresh': dict(self.refresh_state),
+        return {'modules': rows, 'refresh': dict(self.refresh_state), 'checks': dict(self.check_state),
                 'core_ready': all(r['installed'] and not r['outdated'] for r in rows if r['core']),
                 'restart_required': bool(self.restart_required),
                 'python': sys.version.split()[0], 'executable': self.python}
@@ -316,11 +360,70 @@ class ModuleManager:
             checked_at=self._cache.get('checked_at'),
             error=errors[0] if errors and not versions else '')
 
+    # ------------------------------------------------------------ import check (each start, after installs)
+    def check_import(self, mid):
+        """Import one module in a fresh Python. Returns (ok, error message)."""
+        m = self.by_id[mid]
+        env = dict(os.environ, MPLBACKEND='Agg', PYTHONUNBUFFERED='1')
+        flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+        try:
+            out = subprocess.run([self.python, '-c', IMPORT_CHECK, m.get('check') or m['import']],
+                                 capture_output=True, text=True, encoding='utf-8', errors='replace', env=env,
+                                 cwd=tempfile.gettempdir(), timeout=IMPORT_TIMEOUT, creationflags=flags)
+        except subprocess.TimeoutExpired:
+            return False, f'The import did not finish within {IMPORT_TIMEOUT} s.'
+        except OSError as exc:
+            return False, str(exc)
+        if out.returncode == 0:
+            return True, ''
+        lines = [l for l in (out.stdout.strip() or out.stderr.strip()).splitlines() if l.strip()]
+        if lines:
+            return False, lines[-1][:500]
+        return False, f'Python stopped while importing {m["import"]} (exit code {out.returncode}).'
+
+    def verify_async(self, force=False):
+        """Check in the background that installed modules import. force: check again even if
+        the version did not change (an install may have changed a shared dependency)."""
+        with self._check_lock:
+            if force:
+                self._check_gen += 1
+            if self.check_state['state'] == 'running':
+                self._check_again = True
+                return
+            self.check_state['state'] = 'running'
+        threading.Thread(target=self._verify, name='import-check', daemon=True).start()
+
+    def _verify(self):
+        while True:
+            gen = self._check_gen
+            todo = []
+            for m in self.modules:
+                version = installed_version(m['pip'])
+                old = self.checks.get(m['id'])
+                # New or changed version, a forced check, or a module that failed before (it may be fixed now).
+                if version and not (old and old['version'] == version and old['gen'] >= gen and old['ok']):
+                    todo.append((m['id'], version))
+
+            def one(item):
+                ok, error = self.check_import(item[0])
+                self.checks[item[0]] = {'version': item[1], 'ok': ok, 'error': error, 'gen': gen}
+
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                list(pool.map(one, todo))
+            if todo:
+                self._write_checks()
+            with self._check_lock:
+                if not self._check_again:
+                    self.check_state.update(state='done', checked_at=time.time())
+                    return
+                self._check_again = False
+
     # ------------------------------------------------------------ installs
     def job(self, jid):
         return self.jobs.get(jid)
 
-    def start_install(self, ids, upgrade=False):
+    def start_install(self, ids, upgrade=False, reinstall=False):
+        """reinstall: install the same version again over a broken one (dependencies untouched)."""
         ids = [i for i in dict.fromkeys(ids) if i in self.by_id]
         if not ids:
             raise ValueError('No known module to install.')
@@ -328,16 +431,21 @@ class ModuleManager:
             if job.state == 'running' and job.kind == 'install' and job.result.get('ids') == ids:
                 return job
         job = Job('install', ', '.join(self.by_id[i]['pip'] for i in ids))
-        job.result = {'ids': ids, 'upgrade': bool(upgrade)}
+        job.result = {'ids': ids, 'upgrade': bool(upgrade), 'reinstall': bool(reinstall)}
         self.jobs[job.id] = job
-        threading.Thread(target=self._run_install, args=(job, ids, upgrade), name=f'pip-{job.id}', daemon=True).start()
+        threading.Thread(target=self._run_install, args=(job, ids, upgrade, reinstall), name=f'pip-{job.id}',
+                         daemon=True).start()
         return job
 
-    def _specs(self, ids, upgrade):
+    def _specs(self, ids, upgrade, reinstall=False):
         specs = []
         for i in ids:
             m = self.by_id[i]
-            specs.append(m['pip'] if upgrade or not m.get('min') else f'{m["pip"]}>={m["min"]}')
+            current = self.installed(i)
+            if reinstall and current:
+                specs.append(f'{m["pip"]}=={current}')
+            else:
+                specs.append(m['pip'] if upgrade or not m.get('min') else f'{m["pip"]}>={m["min"]}')
         return specs
 
     def _pip(self, job, args, on_line=None):
@@ -367,15 +475,20 @@ class ModuleManager:
         except Exception:
             return ()
 
-    def _run_install(self, job, ids, upgrade):
+    def _run_install(self, job, ids, upgrade, reinstall=False):
         with self.install_lock:
+            state = 'done'
             try:
-                self._install(job, ids, upgrade)
+                self._install(job, ids, upgrade, reinstall)
             except InterruptedError:
-                job.state = 'cancelled'
+                state = 'cancelled'
             except Exception as exc:
                 job.error = str(exc) or exc.__class__.__name__
-                job.state = 'error'
+                state = 'error'
+            # Check every module again (shared dependencies may have changed), and start before the
+            # job ends so the page sees the check running and follows it.
+            self.verify_async(force=True)
+            job.state = state
 
     def externally_managed(self):
         """True for a system/Homebrew Python that forbids pip installs (PEP 668) and is not a venv."""
@@ -384,7 +497,7 @@ class ModuleManager:
         import sysconfig
         return Path(sysconfig.get_path('stdlib'), 'EXTERNALLY-MANAGED').exists()
 
-    def _install(self, job, ids, upgrade):
+    def _install(self, job, ids, upgrade, reinstall=False):
         if self.externally_managed():
             raise RuntimeError(f'{self.python} is managed by the system or Homebrew and cannot receive packages. '
                                'Start PyPlotter with start_pyplotter.command / .bat or start_pyplotter.py, '
@@ -398,8 +511,10 @@ class ModuleManager:
             if self._pip(job, ['install', '--upgrade', 'pip']) != 0:
                 raise RuntimeError(_pip_error(job.log, 'Updating pip failed.'))
         job.set(0.05, phase='resolving')
-        specs = self._specs(ids, upgrade)
+        specs = self._specs(ids, upgrade, reinstall)
         extra = ['--upgrade'] if upgrade else []
+        if reinstall:
+            extra += ['--force-reinstall', '--no-deps']
         fd, report = tempfile.mkstemp(suffix='.json', prefix='pyplotter-pip-')
         os.close(fd)
         try:
@@ -433,7 +548,6 @@ class ModuleManager:
         if missing:
             raise RuntimeError('Not installed: ' + ', '.join(missing))
         job.set(1.0, phase='done', detail='')
-        job.state = 'done'
 
 
 def _pip_error(log, fallback):
