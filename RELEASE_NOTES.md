@@ -1,34 +1,88 @@
-# PyPlotter — next version (draft)
+# PyPlotter 0.1.3
 
-- **Rotate 3D figures with the mouse.** Drag a 3D surface, scatter or waterfall: a light copy of the data
-  turns smoothly in the page, with Matplotlib's own projection, panes, grid, ticks and labels. On release
-  the elevation and azimuth are kept and the figure is drawn again. Double-click restores the default view.
-- *Italiano:* **ruota i grafici 3D col mouse** — trascina la figura: l’anteprima gira in modo fluido con la
-  proiezione di Matplotlib; al rilascio gli angoli restano e la figura viene ridisegnata (doppio clic: vista
-  predefinita).
-- **Zoom with the mouse.** Drag a box on the axes: its corners become the axis limits (the X/Y min/max
-  fields) and the figure is drawn again with ticks for the new range. A thin horizontal box zooms x only,
-  and y then follows the data in that range (one small band of a spectrum fills the plot). *Previous zoom*,
-  *Whole figure* or a double-click go back. Works on every kind with axes (lines, scatter, bars, box and
-  violin plots, histograms, heat maps, contours…). **The mouse wheel** zooms around the pointer (Shift: x
-  only); on **polar** figures it zooms the radius, on **3D** figures the three ranges (what falls outside is
-  clipped). Pie charts and pair plots have no zoom.
-- **Move and rewrite every text.** Titles, axis labels, the colour-bar label, the legend, pie slice names
-  and shares, pair-plot labels and value labels can be dragged on the figure, on every kind including 3D.
-  **Double-click a text to rewrite it** (formulas between `$…$`, e.g. `cm$^{-1}$`): titles and axis labels
-  go to their fields in the Text panel, the others are kept with the figure. *Original text* and *Original
-  position* undo each one; *Texts back in place* moves them all back. Everything is kept in every export.
-- **Peak labels no longer overlap.** A label that would cover another one, a curve or the legend moves up
-  or aside, joined to its peak by a thin leader line; the y axis grows to make room above the tallest peak
-  unless its limit is fixed. Labels are placed in points, so the preview and the export match.
-- *Italiano:* **zoom col mouse** — trascina un riquadro sugli assi: diventano i limiti degli assi e la figura
-  viene ridisegnata con le tacche del nuovo intervallo; un riquadro sottile ingrandisce solo x e y segue i dati
-  visibili. *Zoom precedente*, *Figura intera* o doppio clic per tornare indietro. Vale per tutti i grafici
-  con assi; **la rotella** ingrandisce attorno al puntatore, e nei grafici **polari** (raggio) e **3D** (i tre
-  assi). **Ogni testo si sposta trascinandolo e si riscrive con un doppio clic** (titoli, etichette degli
-  assi, barra dei colori, legenda, fette della torta, valori dei picchi; formule tra `$…$`) e resta così in
-  ogni esportazione. **Le etichette dei picchi non si sovrappongono più**: si spostano in alto o di lato
-  con una sottile linea di richiamo verso il picco.
+**Zoom, move and rewrite on the figure itself — and peak labels that never overlap.**
+*Italiano più sotto.*
+
+## What's new
+
+### Zoom
+- **Drag a box** on the axes: its corners become the axis limits (the X/Y min/max fields of the Axes
+  panel) and the figure is drawn again with ticks for the new range. Works on every plot with axes: lines,
+  scatter, bars, box and violin plots, histograms, heat maps, contours, hexbin…
+- A **thin box** zooms one axis only. Zoomed on x alone, **y follows the data in that range**: one small
+  band of a spectrum fills the plot.
+- The **mouse wheel** zooms around the pointer (Shift + wheel: x only). On **polar** figures it zooms the
+  radius, on **3D** figures the three ranges; what falls outside a 3D box is clipped.
+- *↶ Previous zoom*, *⤢ Whole figure* or a double-click on the plot go back. Pie charts and pair plots
+  have no zoom.
+
+### Move and rewrite every text
+- **Drag** titles, axis labels (z too), the colour-bar label, the legend, pie slice names and shares,
+  pair-plot labels and value labels, on every kind of plot.
+- **Double-click a text to rewrite it.** Formulas go between `$…$`, e.g. `cm$^{-1}$`, `$\mu$g`,
+  `H$_2$O`. Titles and axis labels are written in their fields of the Text panel; the legend's title in
+  its own; the other texts are kept with the figure.
+- *Original text* and *Original position* undo one text; *↺ Texts back in place* moves them all back.
+- What you move and rewrite is kept in every export (PNG, TIFF, PDF, SVG, EPS, Python script) and in
+  templates.
+
+### Peak labels
+- Labels that would cover another label, a curve or the legend move up or aside, joined to their peak by
+  a thin **leader line**.
+- The y axis grows to make room above the tallest peak, unless you fixed that limit.
+- Labels are placed in points, so the preview and the export at any DPI match.
+
+### 3D figures
+- **Drag a 3D figure to rotate it**: a light copy of the data turns smoothly in the page, with
+  Matplotlib's own projection. On release the angles are kept and the figure is drawn again.
+  Double-click restores the default view.
+
+### Fixes
+- Setting the Y limits of a heat map no longer turns it upside down.
+
+## Changes in behaviour
+- With **only the X limits** set (by zoom or in the Axes panel), the Y axis now spans the data in that
+  range instead of all the data.
+- Peak labels may sit beside their peak, with a leader line, and the y axis may be taller to make room for
+  them.
+
+## Updating
+Download the source of this release and replace the old folder. Your settings and plugins in
+`~/.pyplotter/` are kept. Restart PyPlotter after updating.
+
+---
+
+## Italiano
+
+**Zoom, spostamento e modifica dei testi direttamente sulla figura — e etichette dei picchi che non si
+sovrappongono.**
+
+### Novità
+- **Zoom:**
+  - trascina un riquadro sugli assi: diventa i limiti degli assi e la figura viene ridisegnata con le
+    tacche del nuovo intervallo, su ogni grafico con assi;
+  - un riquadro sottile ingrandisce un solo asse; ingrandendo solo x, **y segue i dati visibili**;
+  - la **rotella** ingrandisce attorno al puntatore (Maiusc: solo x), nei grafici polari il raggio, nei
+    3D i tre assi;
+  - *↶ Zoom precedente*, *⤢ Figura intera* o doppio clic sul grafico per tornare indietro.
+- **Testi:** titoli, etichette degli assi, barra dei colori, legenda, fette della torta, etichette del
+  grafico a coppie e valori dei picchi si **spostano trascinandoli** e si **riscrivono con un doppio
+  clic** (formule tra `$…$`). Restano in ogni esportazione; *Testo originale*, *Posizione originale* e
+  *↺ Testi al loro posto* li ripristinano.
+- **Etichette dei picchi** senza sovrapposizioni: si spostano in alto o di lato con una sottile linea di
+  richiamo, e l’asse y si allunga per farle stare.
+- **Grafici 3D:** trascina la figura per ruotarla; doppio clic per la vista predefinita.
+- **Correzione:** i limiti Y non capovolgono più una mappa di calore.
+
+### Cambiamenti di comportamento
+- Con **solo i limiti X** impostati, l’asse Y copre i dati di quell’intervallo e non più tutti i dati.
+- Le etichette dei picchi possono stare accanto al picco, con una linea di richiamo.
+
+### Aggiornare
+Sostituisci la cartella con quella di questa versione e riavvia PyPlotter. Impostazioni e plugin in
+`~/.pyplotter/` restano.
+
+Licenza MIT · © 2026 Tommaso Francese
 
 ---
 
