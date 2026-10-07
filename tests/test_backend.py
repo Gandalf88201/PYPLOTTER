@@ -4,7 +4,9 @@ import gzip
 import io
 import json
 from pathlib import Path
+import shutil
 import sqlite3
+import subprocess
 import sys
 import tempfile
 import time
@@ -12,7 +14,8 @@ import unittest
 from unittest import mock
 import zipfile
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
 from pyplotter.modules import clean_appledouble  # noqa: E402
 clean_appledouble()
 
@@ -553,6 +556,61 @@ class TestPlotting(unittest.TestCase):
         with self.assertRaises(plotting.SpecError):
             plotting.render(spectra, {'kind': 'surface3d', 'x': 'Wavelength (nm)', 'y': ['Sample A']}, 'png', 40)
 
+    @unittest.skipUnless(shutil.which('node'), 'node not installed')
+    def test_rotatable_preview_matches_matplotlib(self):
+        """web/view3d.js projects points where Matplotlib draws them, at any view (and inverted axes)."""
+        from mpl_toolkits.mplot3d import proj3d
+        df = samples.make('surface')
+        spec = plotting.normalize_spec({'kind': 'surface3d', 'x': 'x', 'y': ['y'], 'z': 'z', 'axes': {'invert_x': True}})
+        with plotting.style_context(spec), plotting.rc_context(plotting._rc(spec)):
+            fig = plotting.build_figure(df, spec)
+            fig.savefig(io.BytesIO(), format='png', dpi=60)
+            data = plotting.view3d(fig)
+            ax = next(a for a in fig.axes if a.name == '3d')
+            pts = [(-2.5, 1.0, 0.3), (0.0, 0.0, -0.8), (3.0, -2.0, 1.1)]
+            views = [(25, -60), (10, 30), (70, 150), (-20, -170)]
+            # Projected coordinates → image, with the map of the first drawing (the layout engine moves the
+            # axes by a pixel or so at each drawing, here and in the app alike).
+            A = data['axes'][0]['affine']
+            to_image = lambda px, py: [A[0] * px + A[1] * py + A[2], A[3] * px + A[4] * py + A[5]]  # noqa: E731
+            expected, labels, ticklabels = [], [], []
+            for elev, azim in views:
+                ax.view_init(elev=elev, azim=azim)
+                xs, ys, _ = proj3d.proj_transform(*np.array(pts).T, ax.get_proj())
+                expected.append([to_image(px, py) for px, py in zip(xs, ys)])
+                fig.savefig(io.BytesIO(), format='png', dpi=60)          # places the axis labels
+                labels.append([to_image(*a.label.get_position()) for a in (ax.xaxis, ax.yaxis, ax.zaxis)])
+                drawn = []                                   # the tick labels as drawn (inside the limits)
+                for a, (lo, hi) in zip((ax.xaxis, ax.yaxis, ax.zaxis), (ax.get_xbound(), ax.get_ybound(), ax.get_zbound())):
+                    locs = a.get_majorticklocs()
+                    drawn += [to_image(*t.label1.get_position()) for t in a.get_major_ticks()[:len(locs)]
+                              if lo - 1e-12 <= t.get_loc() <= hi + 1e-12]
+                ticklabels.append(drawn)
+        v = data['axes'][0]
+        self.assertEqual(len(data['axes']), 1)
+        self.assertEqual(len(data['keep']), 1)                # the colour bar stays visible while rotating
+        self.assertEqual({L['type'] for L in v['layers']}, {'grid'})
+        self.assertLessEqual(v['layers'][0]['rows'], plotting.PREVIEW_GRID + 1)
+        script = ('const V = require(%s); const v = %s; const out = %s.map(([e, a]) => { const P = V.projector(v, e, a); '
+                  'const L = V.layout(v, e, a); return [%s.map(p => P(...p).slice(0, 2)), L.labels.map(c => c.slice(0, 2)), '
+                  'L.ticks.map(t => t.at.slice(0, 2))]; }); '
+                  'console.log(JSON.stringify(out));'
+                  % (json.dumps(str(ROOT / 'web' / 'view3d.js')), json.dumps(v), json.dumps(views), json.dumps(pts)))
+        got = json.loads(subprocess.run(['node', '-e', script], capture_output=True, text=True, check=True).stdout)
+        np.testing.assert_allclose([g[0] for g in got], expected, atol=1e-6)
+        # Axis names where Matplotlib puts them: their offset scales with the axes size, which the layout
+        # engine changes by a pixel or two at each drawing.
+        np.testing.assert_allclose([g[1] for g in got], labels, atol=0.005)
+        np.testing.assert_allclose([g[2] for g in got], ticklabels, atol=0.005)
+        json.dumps(data, allow_nan=False)                     # what the server sends
+        for kind, sample, spec in (('waterfall', 'spectra', {'x': 'Wavelength (nm)', 'y': ['Sample A', 'Sample B']}),
+                                   ('scatter3d', 'cloud', {'x': 'x', 'y': ['y'], 'z': 'z', 'hue': 'class'})):
+            info = {}
+            plotting.render(samples.make(sample), dict(spec, kind=kind), 'png', 50, info=info)
+            view = json.loads(json.dumps(info['view3d'], allow_nan=False))
+            self.assertTrue(all(isinstance(k, list) and len(k) == 4 for k in view['keep']), kind)
+            self.assertEqual({L['type'] for L in view['axes'][0]['layers']}, {'line' if kind == 'waterfall' else 'points'})
+
     @unittest.skipUnless(has('plotly'), 'plotly not installed')
     def test_three_d_interactive_html(self):
         for kind, (sample, spec) in self.CASES.items():
@@ -799,6 +857,98 @@ class TestPlotting(unittest.TestCase):
         info = {}
         plotting.render(df, {'kind': 'heatmap', 'y': ['x', 'y']}, 'png', dpi=40, info=info)
         self.assertEqual(len(info['axes']), 1)                          # the colour bar is left out
+
+    def _peak_figure(self, **extra):
+        x = np.arange(550.0, 4000.0)
+        g = lambda c, w, a: a * np.exp(-0.5 * ((x - c) / w) ** 2)          # noqa: E731
+        centres = [(674, 2, 6.5e-3), (660, 5, 3e-4), (688, 5, 3.5e-4), (1038, 6, 1.1e-4), (3047, 10, 2.3e-4),
+                   (3070, 8, 1.9e-4), (3102, 10, 1.6e-4)]
+        df = pd.DataFrame({'x': x, 'y': sum(g(*c) for c in centres)})
+        idx = [int(np.argmin(abs(x - c))) for c, _, _ in centres]
+        frame = pd.DataFrame({'x': x[idx], 'top': df['y'].to_numpy()[idx], 'text': [f'{v:.0f}' for v in x[idx]]})
+        spec = {'kind': 'line', 'x': 'x', 'y': ['y'],
+                'overlays': [{'id': 'p', 'dataset_id': 'd', 'x': 'x', 'y': 'top', 'text': 'text',
+                              'style': {'linestyle': 'none', 'marker': 'v'}}], **extra}
+        info = {}
+        plotting.render(df, spec, 'png', 100, overlay_data={'p': frame}, info=info)
+        return info
+
+    def test_value_labels_do_not_overlap(self):
+        """Crowded peak labels move apart (with a leader line); all of them stay inside the axes."""
+        info = self._peak_figure()
+        labels = [m for m in info['movables'] if m['kind'] == 'label']
+        self.assertEqual(len(labels), 7)
+        box = info['axes'][0]['box']
+        for i, a in enumerate(labels):
+            self.assertTrue(box[0] <= a['box'][0] and a['box'][2] <= box[2] and box[1] <= a['box'][1] and a['box'][3] <= box[3], a)
+            for b in labels[i + 1:]:
+                apart = a['box'][2] <= b['box'][0] or b['box'][2] <= a['box'][0] or a['box'][3] <= b['box'][1] or b['box'][3] <= a['box'][1]
+                self.assertTrue(apart, (a['id'], b['id']))
+        self.assertTrue(any(m['offset'][0] for m in labels))                  # some moved aside
+
+    def test_dragged_texts_stay_where_put(self):
+        info = self._peak_figure(moved={'label:p:3070': [12, 30], 'xlabel': [20, -4]}, legend={'pos': [0.05, 0.95]},
+                                 text={'title': 'T'})
+        by_id = {m['id']: m for m in info['movables']}
+        self.assertEqual(by_id['label:p:3070']['offset'], [12.0, 30.0])
+        self.assertEqual(by_id['xlabel']['offset'], [20.0, -4.0])
+        self.assertIn('title', by_id)
+        lg, ref = by_id['legend']['box'], by_id['legend']['ref']
+        self.assertAlmostEqual((lg[0] - ref[0]) / (ref[2] - ref[0]), 0.05, delta=0.02)   # its top left corner
+        self.assertAlmostEqual((lg[3] - ref[1]) / (ref[3] - ref[1]), 0.95, delta=0.02)
+
+    def test_zoom_on_x_fits_y(self):
+        """With only the x range fixed, y spans the data in that range (one small band of a spectrum)."""
+        info = self._peak_figure(axes={'xmin': 2950, 'xmax': 3200})
+        lo, hi = info['axes'][0]['ylim']
+        self.assertLess(hi, 1e-3)                                              # not the 6.5e-3 peak outside
+        self.assertGreater(hi, 2.3e-4)
+        self.assertEqual(sorted(m['id'] for m in info['movables'] if m['kind'] == 'label'),
+                         ['label:p:3047', 'label:p:3070', 'label:p:3102'])     # labels outside the range are not listed
+
+    def test_every_kind_lists_its_texts(self):
+        """Titles and labels of every kind can be dragged and rewritten; polar and 3D axes zoom with the wheel."""
+        groups, surface = samples.make('groups'), samples.make('surface')
+        value = [c for c in groups.columns if groups[c].dtype.kind == 'f'][0]
+        cases = [(groups, {'kind': 'pie', 'x': 'Group', 'y': [value], 'texts': {'pie.name:Control': 'Controllo'}},
+                  {'pie.name:Control': ('Controllo', None)}),
+                 (groups, {'kind': 'box', 'x': 'Group', 'y': [value], 'text': {'ylabel': 'R'}}, {'ylabel': ('R', 'text.ylabel')}),
+                 (surface, {'kind': 'contour', 'x': 'x', 'y': ['y'], 'z': 'z'}, {'cblabel': ('z', 'text.zlabel')}),
+                 (surface, {'kind': 'surface3d', 'x': 'x', 'y': ['y'], 'z': 'z'}, {'zlabel': ('z', 'text.zlabel')})]
+        for df, spec, expected in cases:
+            info = {}
+            plotting.render(df, dict(spec, text={'title': 'T', **spec.get('text', {})}), 'png', 40, info=info)
+            by_id = {m['id']: (m['text'], m['field']) for m in info['movables']}
+            self.assertEqual(by_id['title'], ('T', 'text.title'), spec['kind'])
+            for key, val in expected.items():
+                self.assertEqual(by_id[key], val, spec['kind'])
+        info = {}
+        plotting.render(surface, {'kind': 'surface3d', 'x': 'x', 'y': ['y'], 'z': 'z'}, 'png', 40, info=info)
+        self.assertEqual([z['type'] for z in info['zoom']], ['3d'])
+
+    def test_text_boxes_match_the_image_at_any_dpi(self):
+        """Where the page outlines a text is where the image shows it, whatever DPI the preview uses
+        (axis labels keep a position in pixels, so they must be measured at the DPI of the image)."""
+        df = samples.make('spectra')
+        boxes = []
+        for dpi in (40, 300):
+            info = {}
+            plotting.render(df, {'kind': 'line', 'x': 'Wavelength (nm)', 'y': ['Sample A']}, 'png', dpi, info=info)
+            by_id = {m['id']: m['box'] for m in info['movables']}
+            self.assertLess(by_id['xlabel'][3], info['axes'][0]['box'][1] - 0.04)   # under the tick labels
+            boxes.append(by_id)
+        for key in ('xlabel', 'ylabel'):
+            for a, b in zip(boxes[0][key], boxes[1][key]):
+                self.assertAlmostEqual(a, b, delta=0.02, msg=key)
+
+    def test_limits_keep_an_image_upright(self):
+        """Zooming a heat map (rows drawn from the top) keeps its orientation."""
+        df = pd.DataFrame(np.arange(20.0).reshape(5, 4), columns=list('abcd'))
+        for axes in ({}, {'ymin': 0.5, 'ymax': 3.5}):
+            info = {}
+            plotting.render(df, {'kind': 'heatmap', 'y': list('abcd'), 'axes': axes}, 'png', 40, info=info)
+            lo, hi = info['axes'][0]['ylim']
+            self.assertGreater(lo, hi, axes)                                   # still top to bottom
 
     def test_preview_of_a_wide_table(self):
         from pyplotter import server

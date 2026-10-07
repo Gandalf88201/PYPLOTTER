@@ -372,6 +372,9 @@ textarea.code { width: 100%; height: min(60vh, 560px); font: 12.5px/1.5 var(--mo
 /* points clicked on the figure (e.g. baseline anchor points) */
 .figure-box.picking img { cursor: crosshair; }
 .pick-layer { position: absolute; inset: 0; pointer-events: none; }
+#figure.rotatable { cursor: grab; touch-action: none; }
+#figure.rotatable.rotating { cursor: grabbing; }
+.view3d-layer { position: absolute; pointer-events: none; }
 .pick-dot { position: absolute; width: 9px; height: 9px; margin: -4.5px 0 0 -4.5px; border-radius: 50%; background: var(--accent); border: 1.5px solid #fff; box-shadow: 0 0 0 1px var(--accent); }
 .pick-vline { position: absolute; width: 0; margin-left: -1px; border-left: 2px dashed var(--accent); opacity: .85; }
 .pick-readout { position: absolute; pointer-events: none; font: 11px var(--mono); white-space: pre; background: var(--panel); color: var(--text); border: 1px solid var(--border-strong); border-radius: 5px; padding: 2px 6px; box-shadow: var(--shadow); }
@@ -379,3 +382,17 @@ textarea.code { width: 100%; height: min(60vh, 560px); font: 12.5px/1.5 var(--mo
 .points-field textarea { width: 100%; min-height: 64px; resize: vertical; font: 12px var(--mono); padding: 5px 8px; border: 1px solid var(--border-strong); border-radius: 7px; background: var(--panel); color: var(--text); outline: none; }
 .points-field textarea:focus { border-color: var(--accent); }
 .points-field .mini { margin-top: 4px; }
+/* zooming and moving texts on the figure */
+#figure.zoomable { cursor: crosshair; touch-action: none; }
+#figure.movable { cursor: move; touch-action: none; }
+.zoom-box { position: absolute; pointer-events: none; border: 1px solid var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.zoom-box.thin { border-style: dashed; }
+.move-hover { position: absolute; pointer-events: none; outline: 1px dashed var(--accent); outline-offset: 2px; border-radius: 2px; }
+.move-mask { position: absolute; pointer-events: none; opacity: .85; }
+.move-ghost { position: absolute; pointer-events: none; background-repeat: no-repeat; outline: 1px dashed var(--accent); outline-offset: 2px; }
+.fig-tools { position: absolute; top: 6px; right: 6px; z-index: 2; display: flex; gap: 4px; }
+.fig-tools .btn.small { padding: 3px 9px; box-shadow: var(--shadow); }
+.text-editor { position: absolute; z-index: 3; width: 280px; display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; background: var(--panel); color: var(--text); border: 1px solid var(--border-strong); border-radius: 8px; box-shadow: var(--shadow); }
+.text-editor input { width: 100%; height: 28px; padding: 3px 7px; }
+.text-editor-row { display: flex; gap: 4px; flex-wrap: wrap; }
+.text-editor p { margin: 0; line-height: 1.35; }

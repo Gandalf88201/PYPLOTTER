@@ -42,6 +42,14 @@ printed in the terminal window. Options:
   **3D**: surface z(x, y) (from a grid or scattered points; wire frame optional), 3D scatter or line,
   and waterfall of spectra (one curve per column, at the depth given by the column name — a time,
   a temperature — or by its position), with view angles and z limits; also as interactive HTML.
+  **Drag the figure to rotate it**: a light copy of the data turns smoothly in the page, with Matplotlib's own
+  projection, panes, grid and labels; on release the angles are kept and the figure is drawn again
+  (double-click: default view).
+- **Zoom and edit on the figure**: drag a box or turn the mouse wheel to zoom (any plot with axes; the
+  wheel also zooms polar and 3D figures) and the axes are drawn again for the new range. Drag any text —
+  title, axis labels, legend, colour-bar label, slice and peak labels — to move it, double-click it to
+  rewrite it (formulas between `$…$`). Peak labels never overlap: crowded ones move aside with a leader
+  line. Everything is kept in every export.
 - **Publication-ready output**: exact physical size (journal column presets in mm/cm/in),
   PNG/TIFF/JPEG at 150–1200 DPI, vector PDF/SVG/EPS with editable text (TrueType fonts embedded),
   interactive HTML (Plotly), and a **Python script** ZIP (data + settings + script + references)
@@ -172,6 +180,14 @@ con un solo pulsante e una barra di avanzamento. Tieni aperta la finestra del te
 - 27 tipi di grafico, asse Y secondario, fit con equazione e R². In **3D**: superficie z(x, y) (da una
   griglia o da punti sparsi, anche solo reticolo), dispersione o linea 3D e cascata di spettri (una curva
   per colonna, alla profondità data dal nome della colonna o dalla sua posizione), con angoli di vista.
+  **Trascina la figura per ruotarla**: una copia leggera dei dati gira in modo fluido nella pagina, con la
+  proiezione di Matplotlib; al rilascio gli angoli restano e la figura viene ridisegnata (doppio clic: vista
+  predefinita).
+- **Zoom e modifica sulla figura**: trascina un riquadro o gira la rotella per ingrandire (ogni grafico con
+  assi; la rotella anche polari e 3D) e gli assi vengono ridisegnati per il nuovo intervallo. Trascina un
+  testo — titolo, etichette degli assi, legenda, barra dei colori, fette, valori dei picchi — per spostarlo,
+  doppio clic per riscriverlo (formule tra `$…$`). Le etichette dei picchi non si sovrappongono: quelle
+  affollate si spostano con una linea di richiamo. Tutto resta in ogni esportazione.
 - Esportazione alle dimensioni esatte delle colonne delle riviste: PNG/TIFF/JPEG fino a 1200 DPI,
   PDF/SVG/EPS vettoriali con testo modificabile, HTML interattivo e uno ZIP con script Python che
   ricrea la figura, completo dei riferimenti da citare.

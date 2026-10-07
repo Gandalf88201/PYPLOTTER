@@ -102,6 +102,7 @@ class App:
         self.started = time.time()
         self.build = build_id()
         self._plugins = None
+        self.views3d = OrderedDict()      # id -> view3d of a recent 3D render (the rotatable preview)
         self._overlay_alias = {}
         self._extra_refs = []
 
@@ -521,6 +522,11 @@ def make_handler(app, port):
                     return self._json({**app.modules.status(), 'build': app.build, 'started': app.started})
                 if path == '/api/meta':
                     return self._json(app.meta())
+                if path.startswith('/api/view3d/'):
+                    view = app.views3d.get(path.rsplit('/', 1)[-1])
+                    if view is None:
+                        raise ApiError('Not found', 404, 'not_found')
+                    return self._json(view)
                 if path.startswith('/api/jobs/'):
                     job = app.modules.job(path.rsplit('/', 1)[-1])
                     if not job:
@@ -562,7 +568,17 @@ def make_handler(app, port):
                     # The colour each series really got, for the Series panel (JSON, URL-encoded).
                     series = quote(json.dumps(info.get('series', []), ensure_ascii=False, default=json_safe))
                     axes = quote(json.dumps(info.get('axes', []), default=json_safe))
-                    return self._send(200, data, mime, {'X-Series': series, 'X-Axes': axes})
+                    # The texts that can be dragged and rewritten on the preview, and the polar / 3D axes the wheel zooms.
+                    movable = quote(json.dumps({'items': info.get('movables', []), 'face': info.get('face'), 'zoom': info.get('zoom', [])},
+                                               default=json_safe))
+                    headers = {'X-Series': series, 'X-Axes': axes, 'X-Movables': movable}
+                    if info.get('view3d'):          # fetched by the page only when the user starts rotating
+                        vid = secrets.token_hex(8)
+                        app.views3d[vid] = info['view3d']
+                        while len(app.views3d) > 8:
+                            app.views3d.popitem(last=False)
+                        headers['X-View3D'] = vid
+                    return self._send(200, data, mime, headers)
                 if path == '/api/export':
                     fmt = str(body.get('format') or 'png').lower()
                     if fmt not in catalog.EXPORT_FORMATS:

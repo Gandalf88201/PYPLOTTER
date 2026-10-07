@@ -15,7 +15,7 @@ import numpy as np
 import pandas as pd
 import matplotlib
 matplotlib.use('Agg')
-from matplotlib import colors as mcolors, rc_context, style as mstyle, ticker  # noqa: E402
+from matplotlib import colors as mcolors, dates as mdates, rc_context, style as mstyle, ticker  # noqa: E402
 from matplotlib.figure import Figure  # noqa: E402
 
 try:
@@ -46,7 +46,7 @@ DEFAULT_SPEC = {
              'y2min': None, 'y2max': None, 'grid': 'auto', 'tick_direction': 'in', 'minor_ticks': True,
              'mirror_ticks': True, 'spines': 'box', 'invert_x': False, 'invert_y': False, 'aspect': 'auto',
              'xrotation': 0, 'sci': False, 'linewidth': 0.8},
-    'legend': {'show': 'auto', 'loc': 'best', 'frame': False, 'ncol': 1, 'title': ''},
+    'legend': {'show': 'auto', 'loc': 'best', 'frame': False, 'ncol': 1, 'title': '', 'pos': None},
     'style': {'base': 'publication', 'palette': 'okabe-ito', 'cmap': 'viridis', 'cmap_reverse': False,
               'linewidth': 1.2, 'linestyle': '-', 'marker': '', 'markersize': 4, 'alpha': 1.0,
               'bins': 30, 'density': False, 'stacked': False, 'fill': True, 'levels': 12, 'contour_lines': True,
@@ -54,6 +54,12 @@ DEFAULT_SPEC = {
               'error_style': 'bars', 'colorbar': True, 'vmin': None, 'vmax': None, 'polar_degrees': True,
               'bar_width': 0.8, 'agg': 'mean', 'show_fliers': True,
               'elev': 25, 'azim': -60, 'wireframe': False, 'connect': False},
+    # Texts the user dragged on the figure: {id: [dx, dy]} in points from where they are drawn by default
+    # (titles, axis labels) or from the point they label (value labels); see movables().
+    'moved': {},
+    # Texts the user rewrote on the figure that have no field of their own (value labels, slice labels,
+    # panel titles…): {id: text}. Titles and axis labels are written in spec['text'] instead.
+    'texts': {},
 }
 
 LABELS = {
@@ -95,6 +101,14 @@ def normalize_spec(spec):
     for key in ('x', 'hue', 'z', 'xerr', 'yerr'):
         spec[key] = spec.get(key) or None
     spec['overlays'] = [o for o in (spec.get('overlays') or []) if isinstance(o, dict)]
+    moved = spec.get('moved') if isinstance(spec.get('moved'), dict) else {}
+    spec['moved'] = {str(k): (float(v[0]), float(v[1])) for k, v in moved.items()
+                     if isinstance(v, (list, tuple)) and len(v) == 2 and all(_num(c) is not None for c in v)}
+    texts = spec.get('texts') if isinstance(spec.get('texts'), dict) else {}
+    spec['texts'] = {str(k): str(v) for k, v in texts.items() if isinstance(v, (str, int, float)) and str(v) != ''}
+    pos = spec['legend'].get('pos')
+    spec['legend']['pos'] = (tuple(float(c) for c in pos) if isinstance(pos, (list, tuple)) and len(pos) == 2
+                             and all(_num(c) is not None for c in pos) else None)
     spec['extra'] = [e for e in (spec.get('extra') or []) if isinstance(e, dict)]
     return spec
 
@@ -626,9 +640,12 @@ def plot_pie(ax, d, ser, ycols):
         raise SpecError('A pie chart needs non-negative values.')
     labels = [str(c) for c in table.index]
     styles = [ser.next(f'{table.columns[0]}::{c}', c) for c in labels]
-    ax.pie(vals, labels=labels, colors=[s['color'] for s in styles], autopct='%1.1f%%', startangle=90,
-           counterclock=False, wedgeprops={'edgecolor': 'white', 'linewidth': 0.8},
-           textprops={'fontsize': d.spec['text']['tick_size']})
+    _, names, shares = ax.pie(vals, labels=labels, colors=[s['color'] for s in styles], autopct='%1.1f%%', startangle=90,
+                              counterclock=False, wedgeprops={'edgecolor': 'white', 'linewidth': 0.8},
+                              textprops={'fontsize': d.spec['text']['tick_size']})
+    for label, name, share in zip(labels, names, shares):      # each slice's name and share can be dragged
+        _move_text(ax.figure, name, f'pie.name:{label}', d.spec)
+        _move_text(ax.figure, share, f'pie.share:{label}', d.spec)
     ax.set_aspect('equal')
     return 'nolegend'
 
@@ -816,19 +833,23 @@ def plot_surface3d(ax, d, ser, ycols):
         X, Y = np.meshgrid(np.asarray(grid.columns, dtype=float), np.asarray(grid.index, dtype=float))
         Z = grid.to_numpy(dtype=float)
         if spec['style']['wireframe']:
-            ax.plot_wireframe(X, Y, Z, color=color, linewidth=float(spec['style']['linewidth']) * 0.5)
+            w = ax.plot_wireframe(X, Y, Z, axlim_clip=True, color=color, linewidth=float(spec['style']['linewidth']) * 0.5)
+            w._pp_mesh = ('wire', X, Y, Z)                   # for the rotatable preview (view3d)
             return 'nolegend'
-        m = ax.plot_surface(X, Y, Z, cmap=cmap, vmin=vmin, vmax=vmax, linewidth=0, antialiased=True,
+        m = ax.plot_surface(X, Y, Z, axlim_clip=True, cmap=cmap, vmin=vmin, vmax=vmax, linewidth=0, antialiased=True,
                             rcount=min(Z.shape[0], 200), ccount=min(Z.shape[1], 200))
+        m._pp_mesh = ('grid', X, Y, Z)
     else:
         frame = d.df[[spec['x'], ycols[0], spec['z']]].apply(pd.to_numeric, errors='coerce').dropna()
         if len(frame) < 4:
             raise SpecError('Not enough points for a 3D surface.')
         x, y, z = (frame.iloc[:, i].to_numpy() for i in range(3))
         if spec['style']['wireframe']:
-            ax.plot_trisurf(x, y, z, color='none', edgecolor=color, linewidth=float(spec['style']['linewidth']) * 0.4)
+            w = ax.plot_trisurf(x, y, z, axlim_clip=True, color='none', edgecolor=color, linewidth=float(spec['style']['linewidth']) * 0.4)
+            w._pp_mesh = ('triwire', x, y, z)
             return 'nolegend'
-        m = ax.plot_trisurf(x, y, z, cmap=cmap, vmin=vmin, vmax=vmax, linewidth=0, antialiased=True)
+        m = ax.plot_trisurf(x, y, z, axlim_clip=True, cmap=cmap, vmin=vmin, vmax=vmax, linewidth=0, antialiased=True)
+        m._pp_mesh = ('tri', x, y, z)
     return m, spec['z']
 
 
@@ -843,10 +864,10 @@ def plot_scatter3d(ax, d, ser, ycols):
     def draw(x, y, st, sub):
         zz = d.numeric(z, sub).to_numpy(dtype=float)
         if connect:
-            ax.plot(x, y, zz, color=st['color'], ls=st['linestyle'], lw=st['linewidth'], marker=st['marker'] or None,
+            ax.plot(x, y, zz, axlim_clip=True, color=st['color'], ls=st['linestyle'], lw=st['linewidth'], marker=st['marker'] or None,
                     ms=st['markersize'], alpha=st['alpha'], label=st['label'])
         else:
-            ax.scatter(x, y, zz, color=st['color'], s=st['markersize'] ** 2, marker=st['marker'] or 'o',
+            ax.scatter(x, y, zz, axlim_clip=True, color=st['color'], s=st['markersize'] ** 2, marker=st['marker'] or 'o',
                        alpha=st['alpha'], linewidths=0, label=st['label'], depthshade=True)
     _xy_loop(ax, d, ser, ycols, draw)
 
@@ -866,7 +887,7 @@ def plot_waterfall(ax, d, ser, ycols):
         if not len(x):
             continue
         st = ser.next(d.key_prefix + ycol, _label(d, ycol, False))
-        ax.plot(x.astype(float), np.full(len(x), pos, dtype=float), y.astype(float), color=st['color'],
+        ax.plot(x.astype(float), np.full(len(x), pos, dtype=float), y.astype(float), axlim_clip=True, color=st['color'],
                 ls=st['linestyle'], lw=st['linewidth'], alpha=st['alpha'], label=st['label'])
     if not numeric:
         step = max(1, int(np.ceil(len(ycols) / 8)))
@@ -984,15 +1005,25 @@ def _apply_limits(ax, spec, xlike, kind):
         conv = lambda v: pd.Timestamp(v) if v not in (None, '') else None  # noqa: E731
     else:
         conv = _num
+    # min and max are the lower and the upper value: an axis the plot itself draws reversed (an image's
+    # rows from the top) stays reversed.
     try:
         lo, hi = conv(xmin), conv(xmax)
         if lo is not None or hi is not None:
+            flipped = ax.xaxis_inverted()
             ax.set_xlim(left=lo, right=hi)
+            if flipped != ax.xaxis_inverted():
+                ax.invert_xaxis()
     except (ValueError, TypeError):
         pass
     lo, hi = _num(a['ymin']), _num(a['ymax'])
     if lo is not None or hi is not None:
+        flipped = ax.yaxis_inverted()
         ax.set_ylim(bottom=lo, top=hi)
+        if flipped != ax.yaxis_inverted():
+            ax.invert_yaxis()
+    elif (xmin not in (None, '') or xmax not in (None, '')) and kind in Y_FIT_KINDS:
+        _fit_y_to_view(ax)
     if a['invert_x']:
         ax.invert_xaxis()
     if a['invert_y']:
@@ -1010,6 +1041,48 @@ def _apply_limits(ax, spec, xlike, kind):
         for lab in ax.get_xticklabels():
             lab.set_rotation(float(a['xrotation']))
             lab.set_ha('right' if 0 < float(a['xrotation']) < 90 else 'center')
+
+
+Y_FIT_KINDS = {'line', 'scatter', 'step', 'errorbar', 'stem', 'regression', 'area'}
+
+
+def _fit_y_to_view(ax):
+    """With only the x range fixed (e.g. zoomed on one band of a spectrum), the y axis spans the data in that
+    range rather than all of it, with Matplotlib's usual margin."""
+    x0, x1 = sorted(ax.get_xlim())
+    lo, hi = np.inf, -np.inf
+    for line in ax.get_lines():
+        xy = np.asarray(line.get_xydata(), dtype=float)
+        if not line.get_visible() or not xy.size:
+            continue
+        y = xy[(xy[:, 0] >= x0) & (xy[:, 0] <= x1), 1]
+        y = y[np.isfinite(y)]
+        if ax.get_yscale() == 'log':
+            y = y[y > 0]
+        if y.size:
+            lo, hi = min(lo, y.min()), max(hi, y.max())
+    from matplotlib.collections import PathCollection
+    for col in ax.collections:                    # scatter points
+        offs = np.asarray(col.get_offsets(), dtype=float)
+        if isinstance(col, PathCollection) and col.get_visible() and offs.ndim == 2 and offs.shape[1] == 2 and len(offs):
+            y = offs[(offs[:, 0] >= x0) & (offs[:, 0] <= x1), 1]
+            y = y[np.isfinite(y)]
+            if y.size:
+                lo, hi = min(lo, y.min()), max(hi, y.max())
+    if not (np.isfinite(lo) and np.isfinite(hi)):
+        return
+    m = matplotlib.rcParams['axes.ymargin']
+    if ax.get_yscale() == 'log':
+        llo, lhi = np.log10(lo), np.log10(hi)
+        span = (lhi - llo) or 1.0
+        ax.set_ylim(10 ** (llo - m * span), 10 ** (lhi + m * span))
+    else:
+        span = (hi - lo) or (abs(hi) or 1.0)
+        ax.set_ylim(lo - m * span, hi + m * span)
+
+
+def _tag_legend(leg):
+    leg._pp_id, leg._pp_field = 'legend', 'legend.title'
 
 
 def _legend_fits(fig, ax, spec, n):
@@ -1033,14 +1106,17 @@ def _legend(fig, ax, spec, handles, labels, kind):
     if lg['frame']:
         kw.update(fancybox=False, edgecolor='black', framealpha=1)
     loc = lg['loc']
-    if loc.startswith('outside'):
+    if lg.get('pos'):                      # dragged on the figure: its top left corner, in fractions of the axes
+        leg = ax.legend(handles, labels, loc='upper left', bbox_to_anchor=lg['pos'], borderaxespad=0, **kw)
+        _tag_legend(leg)
+    elif loc.startswith('outside'):
         where = {'outside right': 'outside right upper', 'outside top': 'outside upper center',
                  'outside bottom': 'outside lower center'}.get(loc, 'outside right upper')
         if where != 'outside right upper' and lg['ncol'] in (1, '1', None):
             kw['ncol'] = min(len(handles), 4)
-        fig.legend(handles, labels, loc=where, **kw)
+        _tag_legend(fig.legend(handles, labels, loc=where, **kw))
     else:
-        ax.legend(handles, labels, loc=loc, **kw)
+        _tag_legend(ax.legend(handles, labels, loc=loc, **kw))
 
 
 OVERLAY_KINDS = {'line', 'scatter', 'step', 'area', 'errorbar', 'regression', 'stem', 'hist', 'kde', 'ecdf',
@@ -1089,11 +1165,253 @@ def _draw_overlays(ax, spec, ser, df, overlay_data):
                 zorder=3)
         if text:                                  # value labels above each point (below for minima)
             below = st['text_below'] if 'text_below' in st else marker == '^'   # older layers: from the marker
+            labels = ax.__dict__.setdefault('_pp_labels', [])        # placed by _place_labels once drawn
+            ms = float(st.get('markersize') or spec['style']['markersize'] * 1.4) if marker else 0.0
             for xv, yv, tv in zip(x, sub[o['y']].to_numpy(float), frame.loc[sub.index, text]):
-                ax.annotate(str(tv), (xv, yv), xytext=(0, -9 if below else 7), textcoords='offset points',
-                            ha='center', va='top' if below else 'bottom', zorder=4,
-                            color=matplotlib.rcParams['text.color'],   # readable whatever the palette
-                            fontsize=float(spec['text']['tick_size']) * 0.9)
+                labels.append({'id': f'label:{o.get("id")}:{xv:.6g}', 'xy': (xv, yv), 'text': str(tv),
+                               'below': bool(below), 'marker': ms})
+
+
+# ------------------------------------------------------------------ value labels without overlaps
+# All distances in points, so the preview and an export at any DPI place the labels alike.
+LABEL_GAP = 2.5          # between a label and its marker
+LABEL_PAD = 1.2          # free space kept around each label
+LABEL_ROOM = 2.5         # the axes grow at most this many times to make room above the points
+
+
+def _curve_samples(P, step):
+    """Points along a polyline (display coordinates, NaN = break) at most `step` apart."""
+    P = np.asarray(P, dtype=float)
+    ok = np.isfinite(P).all(axis=1)
+    if ok.sum() < 2:
+        return P[ok]
+    seg = ok[:-1] & ok[1:]
+    a, b = P[:-1][seg], P[1:][seg]
+    n = np.clip(np.ceil(np.hypot(*(b - a).T) / step).astype(int), 1, 400)
+    idx = np.repeat(np.arange(a.shape[0]), n)
+    frac = (np.arange(n.sum()) - np.repeat(np.cumsum(n) - n, n)) / np.repeat(n, n)
+    return np.vstack([a[idx] + (b - a)[idx] * frac[:, None], P[ok][-1:]])
+
+
+def _obstacles(ax, pt):
+    """What a label should not cover: the curves (as close samples) and the markers ([x, y, radius]), in pixels."""
+    view = ax.bbox
+    curves, marks = [], []
+    for line in ax.get_lines():
+        if not line.get_visible() or not len(line.get_xydata()):
+            continue
+        P = line.get_transform().transform(line.get_xydata())
+        if line.get_linestyle() not in ('None', 'none', '', ' '):
+            curves.append(_curve_samples(P, 1.2 * pt))
+        if line.get_marker() not in (None, 'None', 'none', '', ' '):
+            marks.append(np.column_stack([P, np.full(len(P), line.get_markersize() / 2 * pt)]))
+    for col in ax.collections:                    # scatter points
+        offs = col.get_offsets()
+        if col.get_visible() and len(offs) and len(offs) < 200_000 and hasattr(col, 'get_sizes') and len(col.get_sizes()):
+            P = col.get_offset_transform().transform(offs)
+            marks.append(np.column_stack([P, np.full(len(P), np.sqrt(col.get_sizes()[0]) / 2 * pt)]))
+    curves = np.vstack(curves) if curves else np.empty((0, 2))
+    marks = np.vstack(marks) if marks else np.empty((0, 3))
+    inside = lambda A: A[(A[:, 0] >= view.x0 - 50) & (A[:, 0] <= view.x1 + 50) & (A[:, 1] >= view.y0 - 50)  # noqa: E731
+                         & (A[:, 1] <= view.y1 + 50) & np.isfinite(A[:, :2]).all(axis=1)]
+    return inside(curves), inside(marks)
+
+
+def _make_room(fig, ax, spec, items, sizes, pt):
+    """Stretch the y axis (above the points, or below them for minima) so each label fits over its point
+    inside the axes; not when the user fixed that limit, and never by more than LABEL_ROOM."""
+    a = spec['axes']
+    if ax.get_yscale() not in ('linear', 'log'):
+        return False
+    H = ax.bbox.height
+    b, t = ax.get_ylim()                          # values at the bottom and at the top of the axes
+    tr = ax.yaxis.get_transform()
+    sb, st = tr.transform(np.array([[b], [t]], dtype=float)).ravel()
+    grown = False
+    for below in (False, True):
+        fixed = a['ymin'] if (below != bool(a['invert_y'])) else a['ymax']
+        if _num(fixed) is not None:
+            continue
+        need = 1.0
+        for it, (w, h) in zip(items, sizes):
+            if it['below'] != below or it.get('fixed'):
+                continue
+            f = ax.transAxes.inverted().transform(ax.transData.transform(it['xy']))[1]
+            if not np.isfinite(f) or not 0 <= f <= 1:
+                continue
+            f = 1 - f if below else f             # distance from the edge the label grows from
+            o = (it['marker'] / 2 + LABEL_GAP + 3 * LABEL_PAD) * pt + h     # clear of the frame
+            if H - o > 0.3 * H:
+                need = max(need, f * H / (H - o))
+        if need > 1.0:
+            need = min(need, LABEL_ROOM)
+            if below:
+                sb = st - (st - sb) * need
+            else:
+                st = sb + (st - sb) * need
+            grown = True
+    if grown:
+        lo, hi = tr.inverted().transform(np.array([[sb], [st]])).ravel()
+        if np.isfinite(lo) and np.isfinite(hi) and lo != hi:
+            ax.set_ylim(lo, hi)
+            return True
+    return False
+
+
+def _place_labels(fig, ax, spec):
+    """Value labels of the overlays (peak positions…): each over its point (under it for minima). A label that
+    would cover another one, a curve or the legend moves up or aside and is joined to its point by a thin
+    leader line. Labels the user dragged (spec['moved']) stay where they were put."""
+    from matplotlib.text import Text
+    items = ax.__dict__.pop('_pp_labels', None)
+    if not items:
+        return
+    size = float(spec['text']['tick_size']) * 0.9
+    color = matplotlib.rcParams['text.color']
+    pt = fig.dpi / 72
+    renderer = fig._get_renderer()
+    sizes = []
+    for it in items:
+        it['text'] = spec['texts'].get(it['id'], it['text'])
+        tb = Text(0, 0, it['text'], fontsize=size, figure=fig).get_window_extent(renderer)
+        sizes.append((tb.width, tb.height))
+        if it['id'] in spec['moved']:
+            it['fixed'] = spec['moved'][it['id']]
+    fig.draw_without_rendering()                  # the final layout and limits
+    if _make_room(fig, ax, spec, items, sizes, pt):
+        fig.draw_without_rendering()
+    legend = ax.get_legend()
+    if legend is not None and legend.get_visible() and legend._loc == 0:   # 'best': keep the place it chose
+        bb = legend.get_window_extent(renderer)
+        legend.set_loc(tuple(ax.transAxes.inverted().transform((bb.x0, bb.y0))))
+    keep_out = [legend.get_window_extent(renderer)] if legend is not None and legend.get_visible() else []
+    curves, marks = _obstacles(ax, pt)
+    view = ax.bbox
+    pad = LABEL_PAD * pt
+    placed = []                                   # [x0, y0, x1, y1] of the labels already placed
+
+    def rect(it, w, h, dx, dy):                   # dx, dy in pixels from the point to the label's near edge
+        X, Y = it['_d']
+        x0 = X + dx - w / 2
+        return (x0, Y - dy - h, x0 + w, Y - dy) if it['below'] else (x0, Y + dy, x0 + w, Y + dy + h)
+
+    def hits(r, P, g=0.0):                        # points of P (grown by g, e.g. marker radii) in r
+        if not len(P):
+            return 0
+        return int(np.count_nonzero((P[:, 0] + g >= r[0] - pad) & (P[:, 0] - g <= r[2] + pad)
+                                    & (P[:, 1] + g >= r[1] - pad) & (P[:, 1] - g <= r[3] + pad)))
+
+    def overlaps(r, others):
+        return any(r[0] < o[2] + pad and r[2] > o[0] - pad and r[1] < o[3] + pad and r[3] > o[1] - pad for o in others)
+
+    leaders = []                                  # leader lines already drawn: ((x0, y0), (x1, y1))
+
+    def leader_of(it, r):                         # from the point to the middle of the label's near edge
+        return (tuple(it['_d']), ((r[0] + r[2]) / 2, r[3] if it['below'] else r[1]))
+
+    def crossings(seg):
+        (ax_, ay_), (bx_, by_) = seg
+        n = 0
+        for (cx_, cy_), (dx_, dy_) in leaders:
+            d1 = (bx_ - ax_) * (cy_ - ay_) - (by_ - ay_) * (cx_ - ax_)
+            d2 = (bx_ - ax_) * (dy_ - ay_) - (by_ - ay_) * (dx_ - ax_)
+            d3 = (dx_ - cx_) * (ay_ - cy_) - (dy_ - cy_) * (ax_ - cx_)
+            d4 = (dx_ - cx_) * (by_ - cy_) - (dy_ - cy_) * (bx_ - cx_)
+            n += d1 * d2 < 0 and d3 * d4 < 0
+        s = np.linspace(0.15, 0.95, 6)[:, None]
+        P = np.array(seg[0]) + (np.array(seg[1]) - np.array(seg[0])) * s
+        return n + sum(hits(o, P) > 0 for o in placed)
+
+    for it, (w, h) in zip(items, sizes):
+        it['_d'] = ax.transData.transform(it['xy'])
+        it['_wh'] = (w, h)
+        it['_in'] = bool(np.isfinite(it['_d']).all() and view.x0 - 1 <= it['_d'][0] <= view.x1 + 1
+                         and view.y0 - 1 <= it['_d'][1] <= view.y1 + 1)
+        it['_base'] = (it['marker'] / 2 + LABEL_GAP) * pt
+        if it.get('fixed') and it['_in']:
+            dx, dy = (c * pt for c in it['fixed'])
+            placed.append(rect(it, w, h, dx, -dy if it['below'] else dy))
+            leaders.append(leader_of(it, placed[-1]))
+    order = sorted((it for it in items if it['_in'] and not it.get('fixed')),
+                   key=lambda it: it['_d'][1] if it['below'] else -it['_d'][1])     # the most prominent first
+    for it in order:                              # where each label would go by itself: kept free for it
+        it['_own'] = rect(it, *it['_wh'], 0, it['_base'])
+    for n, it in enumerate(order):
+        others = [o['_own'] for o in order[n + 1:]]
+        w, h = it['_wh']
+        X, Y = it['_d']
+        near = (np.abs(curves[:, 0] - X) < 4 * w + 2 * pad) if len(curves) else None
+        C = curves[near] if near is not None else curves
+        M = marks[np.abs(marks[:, 0] - X) < 4 * w + 2 * pad] if len(marks) else marks
+        best = None
+        for k in range(14):
+            dy = it['_base'] + k * (h + pad)
+            for j, dx in enumerate((0, 0.6, -0.6, 1.2, -1.2, 1.8, -1.8, 2.6, -2.6, 3.4, -3.4)):
+                r = rect(it, w, h, dx * w, dy)
+                outside = r[0] < view.x0 + 1 or r[2] > view.x1 - 1 or r[1] < view.y0 + 1 or r[3] > view.y1 - 1
+                cost = (1e6 if overlaps(r, placed) else 0) + (1e4 if outside else 0) + 60 * overlaps(r, others) \
+                    + 400 * sum(overlaps(r, [(b.x0, b.y0, b.x1, b.y1)]) for b in keep_out) \
+                    + 6 * hits(r, C) + 25 * hits(r, M[:, :2], M[:, 2] if len(M) else 0) \
+                    + 1.5 * k + 0.9 * abs(dx) + (2 + 25 * crossings(leader_of(it, r)) if (k or dx) else 0)
+                if best is None or cost < best[0]:
+                    best = (cost, dx * w, dy, r)
+            if best[0] < 1.5 * (k + 1) + 3:       # clean spot: higher rows can only cost more
+                break
+        it['fixed_px'] = best[1:3]
+        placed.append(best[3])
+        if best[1] or best[2] > it['_base']:
+            leaders.append(leader_of(it, best[3]))
+
+    for it in items:
+        if 'fixed_px' in it:
+            dx, dy = it['fixed_px'][0] / pt, it['fixed_px'][1] / pt
+            dy = -dy if it['below'] else dy
+        elif it.get('fixed'):
+            dx, dy = it['fixed']
+        else:
+            dx, dy = 0.0, -(it['_base'] / pt) if it['below'] else it['_base'] / pt
+        base = it['_base'] / pt
+        leader = abs(dx) > 0.5 or abs(dy) > base + 0.5
+        kw = {}
+        if leader:
+            kw['arrowprops'] = {'arrowstyle': '-', 'color': color, 'lw': 0.5, 'alpha': 0.8,
+                                'shrinkA': 0.5, 'shrinkB': it['marker'] / 2 + 0.8}
+        ann = ax.annotate(it['text'], it['xy'], xytext=(dx, dy), textcoords='offset points', ha='center',
+                          va='top' if it['below'] else 'bottom', zorder=4, color=color, fontsize=size, **kw)
+        ann._pp_id, ann._pp_offset, ann._pp_label = it['id'], (round(dx, 2), round(dy, 2)), True
+
+
+def _tag_texts(fig, ax, spec, pid='', ax2=None, cbar=None):
+    """Name the titles and axis labels the user can drag and rewrite, and move those already dragged
+    (spec['moved']). field: where the text is kept in the specification (None: in spec['texts'])."""
+    single = not pid                                    # one set of axes: its labels are the figure's own
+    texts = [('title', ax.title if ax.title.get_text() else ax._left_title, 'text.title' if single else None),
+             ('xlabel', ax.xaxis.label, 'text.xlabel'), ('ylabel', ax.yaxis.label, 'text.ylabel')]
+    if ax.name == '3d':
+        texts.append(('zlabel', ax.zaxis.label, 'text.zlabel'))
+    if ax2 is not None:
+        texts.append(('y2label', ax2.yaxis.label, 'text.y2label'))
+    if cbar is not None:
+        texts.append(('cblabel', cbar.ax.yaxis.label if cbar.orientation == 'vertical' else cbar.ax.xaxis.label,
+                      'text.zlabel'))
+    for name, artist, field in texts:
+        _move_text(fig, artist, pid + name, spec, field)
+
+
+def _move_text(fig, artist, key, spec, field=None):
+    """Make a text draggable under the name key: rewritten (spec['texts'], when it has no field of its
+    own) and moved by the offset in points the user dragged it (spec['moved'])."""
+    from matplotlib.transforms import ScaledTranslation
+    if artist is None:
+        return
+    if field is None and key in spec['texts']:
+        artist.set_text(spec['texts'][key])
+    if not artist.get_text():
+        return
+    dx, dy = spec['moved'].get(key, (0.0, 0.0))
+    if dx or dy:
+        artist.set_transform(artist.get_transform() + ScaledTranslation(dx / 72, dy / 72, fig.dpi_scale_trans))
+    artist._pp_id, artist._pp_offset, artist._pp_field = key, (dx, dy), field
 
 
 EXTRA_KINDS = {'line', 'scatter', 'step', 'errorbar', 'stem', 'regression', 'area', 'hist', 'kde', 'ecdf', 'polar'}
@@ -1191,9 +1509,10 @@ def build_figure(df, spec, overlay_data=None, extra_data=None, series_log=None):
             letter = f'({chr(97 + i)})' if layout.get('letters', True) else ''
             title = ' '.join(t for t in (letter, name if layout.get('titles', True) else '') if t)
             _draw_panel(fig, ax, d, Series(spec, series_log, n_series), spec, kind, [], overlay_data, title=title, overlays=i == 0,
-                        outer_x=i // ncols == nrows - 1 or i + ncols >= n, outer_y=i % ncols == 0 or not share)
+                        outer_x=i // ncols == nrows - 1 or i + ncols >= n, outer_y=i % ncols == 0 or not share,
+                        pid=f'p{i}.')
         if spec['text']['title']:
-            fig.suptitle(spec['text']['title'], fontweight=weight)
+            _move_text(fig, fig.suptitle(spec['text']['title'], fontweight=weight), 'suptitle', spec, 'text.title')
         return fig
 
     ax = fig.add_subplot(projection=_projection(kind))
@@ -1204,7 +1523,7 @@ def build_figure(df, spec, overlay_data=None, extra_data=None, series_log=None):
 
 
 def _draw_panel(fig, ax, d, ser, spec, kind, extras, overlay_data, title='', outer_x=True, outer_y=True,
-                overlays=True):
+                overlays=True, pid=''):
     """Draw one set of axes: main data, other files' series (extras), overlays, labels, ticks, limits, legend."""
     t = spec['text']
     weight = 'bold' if t['bold_labels'] else 'normal'
@@ -1247,6 +1566,7 @@ def _draw_panel(fig, ax, d, ser, spec, kind, extras, overlay_data, title='', out
     if title:
         ax.set_title(title, fontweight=weight, loc='left' if title.startswith('(') else 'center')
 
+    cb = None
     if isinstance(result, tuple) and spec['style']['colorbar']:
         mappable, zlabel = result
         three_d = kind in catalog.THREE_D_KINDS
@@ -1284,6 +1604,8 @@ def _draw_panel(fig, ax, d, ser, spec, kind, extras, overlay_data, title='', out
         handles, labels = handles + h2, labels + l2
     if result != 'nolegend':
         _legend(fig, ax, spec, handles, labels, kind)
+    _tag_texts(fig, ax, spec, pid, ax2, cb)
+    _place_labels(fig, ax, spec)
 
 
 def _pairplot(fig, d, ser, spec, weight):
@@ -1314,17 +1636,19 @@ def _pairplot(fig, d, ser, spec, weight):
                 ax.set_xticklabels([])
             else:
                 ax.set_xlabel(xj, fontweight=weight)
+                _move_text(fig, ax.xaxis.label, f'pair.x:{xj}', spec)
             if j > 0:
                 ax.set_yticklabels([])
             else:
                 ax.set_ylabel(yi, fontweight=weight)
+                _move_text(fig, ax.yaxis.label, f'pair.y:{yi}', spec)
     if spec['text']['title']:
-        fig.suptitle(spec['text']['title'], fontweight=weight)
+        _move_text(fig, fig.suptitle(spec['text']['title'], fontweight=weight), 'suptitle', spec, 'text.title')
     if spec['hue'] and spec['legend']['show'] != 'hide':
         handles, labels = axes[1, 0].get_legend_handles_labels()
         if handles:
-            fig.legend(handles, labels, loc='outside right upper', frameon=bool(spec['legend']['frame']),
-                       title=spec['legend']['title'] or spec['hue'])
+            _tag_legend(fig.legend(handles, labels, loc='outside right upper', frameon=bool(spec['legend']['frame']),
+                                   title=spec['legend']['title'] or spec['hue']))
     return fig
 
 
@@ -1373,8 +1697,167 @@ def render(df, spec, fmt='png', dpi=None, overlay_data=None, extra_data=None, in
             fig.savefig(buf, format='jpeg' if fmt == 'jpg' else fmt, dpi=dpi, transparent=transparent,
                         facecolor='auto' if not transparent else 'none', **kw)
             if info is not None:
+                # Measure the figure as it was saved: savefig puts the DPI back, and axis labels keep a
+                # position in pixels from the last drawing, which would no longer match the image.
+                fig.set_dpi(dpi)
+                fig.draw_without_rendering()
                 info['axes'] = axes_geometry(fig)
+                info['movables'] = movables(fig)
+                info['zoom'] = zoom_axes(fig)
+                info['face'] = mcolors.to_hex(fig.get_facecolor())
+                if spec['kind'] in catalog.THREE_D_KINDS:
+                    info['view3d'] = view3d(fig)
     return buf.getvalue()
+
+
+# ------------------------------------------------------------------ rotatable 3D preview
+PREVIEW_GRID = 48           # faces per side of a surface in the preview
+PREVIEW_POINTS = 6000       # points of all 3D scatters together
+PREVIEW_LINE = 1500         # points per 3D line
+PREVIEW_TRIANGLES = 6000
+
+
+def _thin(n, most):
+    """Indices that keep at most `most` of n items, evenly spread (first and last kept)."""
+    if n <= most:
+        return np.arange(n)
+    return np.unique(np.linspace(0, n - 1, most).round().astype(int))
+
+
+def _coords(*arrays):
+    """Lists for JSON, with None where a value is missing (a break in a line)."""
+    return [[None if not np.isfinite(v) else round(float(v), 6) for v in np.asarray(a, dtype=float).ravel()]
+            for a in arrays]
+
+
+def view3d(fig):
+    """What the page needs to rotate the 3D axes of a drawn figure smoothly while the mouse drags
+    (web/view3d.js): for each 3D axes the inputs of mplot3d's projection (Axes3D.get_proj) and the
+    map from projected coordinates to the image, plus a light copy of what the axes show, in the
+    colours drawn. Call after the figure is drawn (positions and limits are then final)."""
+    from matplotlib.colors import to_hex
+    W, H = fig.bbox.width, fig.bbox.height
+    renderer = fig._get_renderer()           # the figure may have no Agg canvas of its own
+
+    def frac(bb):            # display box → [left, top, right, bottom] fractions from the top left
+        return [float(bb.x0 / W), float(1 - bb.y1 / H), float(bb.x1 / W), float(1 - bb.y0 / H)]
+
+    # What the preview must leave visible: colour bars and other 2D axes, legends, titles.
+    keep = []
+    for ax in fig.axes:
+        if ax.name != '3d' and ax.get_visible():
+            keep.append(frac(ax.get_tightbbox(renderer)))
+        legend = ax.get_legend()
+        if legend is not None and legend.get_visible():
+            keep.append(frac(legend.get_window_extent(renderer)))
+        if ax.name == '3d':
+            for title in (ax.title, ax._left_title, ax._right_title):
+                if title.get_text() and title.get_visible():
+                    keep.append(frac(title.get_window_extent(renderer)))
+    for artist in [*fig.legends, *fig.texts, getattr(fig, '_suptitle', None)]:
+        if artist is not None and artist.get_visible():
+            keep.append(frac(artist.get_window_extent(renderer)))
+    out = []
+    for ax in fig.axes:
+        if ax.name != '3d' or not ax.get_visible():
+            continue
+        o, ex, ey = ax.transData.transform([(0, 0), (1, 0), (0, 1)])
+        x0, y0, x1, y1 = ax.get_position().extents
+        layers = []
+        budget = PREVIEW_POINTS
+        for col in ax.collections:
+            mesh = getattr(col, '_pp_mesh', None)
+            if mesh and mesh[0] in ('grid', 'wire'):
+                X, Y, Z = mesh[1:]
+                r, c = _thin(Z.shape[0], PREVIEW_GRID + 1), _thin(Z.shape[1], PREVIEW_GRID + 1)
+                X, Y, Z = X[np.ix_(r, c)], Y[np.ix_(r, c)], Z[np.ix_(r, c)]
+                layer = {'type': mesh[0], 'rows': int(Z.shape[0]), 'cols': int(Z.shape[1])}
+                layer['x'], layer['y'], layer['z'] = _coords(X, Y, Z)
+                if mesh[0] == 'grid':
+                    face = (Z[:-1, :-1] + Z[1:, :-1] + Z[:-1, 1:] + Z[1:, 1:]) / 4
+                    layer['colors'] = [to_hex(c) for c in col.to_rgba(face.ravel())]
+                else:
+                    layer['color'] = to_hex(col.get_edgecolor()[0])
+                layers.append(layer)
+            elif mesh and mesh[0] in ('tri', 'triwire'):
+                from matplotlib.tri import Triangulation
+                x, y, z = (np.asarray(a, dtype=float) for a in mesh[1:])
+                idx = _thin(x.size, PREVIEW_TRIANGLES // 2)
+                x, y, z = x[idx], y[idx], z[idx]
+                tri = Triangulation(x, y).triangles
+                layer = {'type': mesh[0], 'triangles': tri.tolist()}
+                layer['x'], layer['y'], layer['z'] = _coords(x, y, z)
+                if mesh[0] == 'tri':
+                    layer['colors'] = [to_hex(c) for c in col.to_rgba(z[tri].mean(axis=1))]
+                else:
+                    layer['color'] = to_hex(col.get_edgecolor()[0])
+                layers.append(layer)
+            elif hasattr(col, '_offsets3d'):                   # a 3D scatter
+                xs, ys, zs = (np.ma.filled(np.ma.asarray(a, dtype=float), np.nan) for a in col._offsets3d)
+                idx = _thin(xs.size, max(50, budget))
+                budget -= idx.size
+                fc = col.get_facecolor()
+                sizes = col.get_sizes()
+                layer = {'type': 'points', 'size': float(np.sqrt(sizes[0])) if len(sizes) else 6.0,
+                         'alpha': float(fc[0][3]) if len(fc) else 1.0}
+                layer['x'], layer['y'], layer['z'] = _coords(xs[idx], ys[idx], zs[idx])
+                if len(fc) > 1:
+                    layer['colors'] = [to_hex(fc[i]) for i in idx]
+                else:
+                    layer['color'] = to_hex(fc[0]) if len(fc) else '#000000'
+                layers.append(layer)
+        for line in ax.lines:
+            if not hasattr(line, 'get_data_3d') or not line.get_visible():
+                continue
+            xs, ys, zs = (np.asarray(a, dtype=float) for a in line.get_data_3d())
+            idx = _thin(xs.size, PREVIEW_LINE)
+            ls = line.get_linestyle()
+            layer = {'type': 'line' if ls not in ('None', 'none', '', ' ') else 'points',
+                     'color': to_hex(line.get_color()), 'width': float(line.get_linewidth()),
+                     'size': float(line.get_markersize()), 'alpha': float(line.get_alpha() or 1.0)}
+            layer['x'], layer['y'], layer['z'] = _coords(xs[idx], ys[idx], zs[idx])
+            layers.append(layer)
+        pane = [to_hex(a.pane.get_facecolor(), keep_alpha=True) for a in (ax.xaxis, ax.yaxis, ax.zaxis)]
+        # How far mplot3d moves each axis label from the cube (axis3d.Axis._draw_ticks / _update_label_position).
+        ax_points = 72 * float(sum(fig.dpi_scale_trans.inverted().transform(ax.bbox.size)))
+        label_shift = [(a.labelpad + 21.0) * 48 / ax_points for a in (ax.xaxis, ax.yaxis, ax.zaxis)]
+        axis_info = []
+        for a in (ax.xaxis, ax.yaxis, ax.zaxis):
+            ticks = a._update_ticks()           # the ticks inside the limits, as last drawn
+            first = ticks[0] if ticks else None
+            axis_info.append({
+                'ticks': [float(t.get_loc()) for t in ticks],
+                'ticklabels': [t.label1.get_text() if t.label1.get_visible() else '' for t in ticks],
+                'tick_shift': ((first.get_pad() if first else 3.5) + 8.0) * 48 / ax_points,
+                'tick_size': float(first.label1.get_fontsize()) if first else 10.0,
+                'tick_color': to_hex(first.label1.get_color()) if first else '#000000',
+                'tick_width': float(a._axinfo['tick']['linewidth'][True]),
+                'grid': ({'color': to_hex(a._axinfo['grid']['color']), 'width': float(a._axinfo['grid']['linewidth'])}
+                         if ax._draw_grid else None),
+                'line': {'color': to_hex(a.line.get_color()), 'width': float(a.line.get_linewidth())},
+            })
+        out.append({
+            'limits': [round(float(v), 9) for v in ax._get_scaled_limits()],
+            'box': [float(v) for v in ax._roll_to_vertical(ax._box_aspect)],
+            'dist': float(ax._dist), 'focal': float(ax._focal_length) if np.isfinite(ax._focal_length) else None,
+            'elev': float(ax.elev), 'azim': float(ax.azim), 'roll': float(ax.roll),
+            # projected (px, py) → fraction of the image from its top left corner
+            'affine': [(ex[0] - o[0]) / W, (ey[0] - o[0]) / W, o[0] / W,
+                       -(ex[1] - o[1]) / H, -(ey[1] - o[1]) / H, 1 - o[1] / H],
+            'bbox': [float(x0), float(1 - y1), float(x1), float(1 - y0)],
+            'face': to_hex(ax.get_facecolor()) if ax.get_facecolor()[3] > 0 else to_hex(fig.get_facecolor()),
+            'pane': pane, 'edge': to_hex(ax.xaxis.pane.get_edgecolor()),
+            'text': to_hex(ax.xaxis.label.get_color()),
+            'labels': [ax.get_xlabel(), ax.get_ylabel(), ax.get_zlabel()], 'label_shift': label_shift,
+            'label_rotate': [bool(a.get_rotate_label(a.label.get_text())) for a in (ax.xaxis, ax.yaxis, ax.zaxis)],
+            'axis': axis_info,
+            'label_size': float(ax.xaxis.label.get_fontsize()),
+            'layers': layers,
+        })
+    if not out:
+        return None
+    return {'axes': out, 'size_in': [round(float(v), 4) for v in fig.get_size_inches()],
+            'face': to_hex(fig.get_facecolor()), 'keep': keep}
 
 
 def axes_geometry(fig):
@@ -1389,7 +1872,76 @@ def axes_geometry(fig):
         if any(g['box'] == box for g in out):
             continue
         out.append({'box': box, 'xlim': [float(v) for v in ax.get_xlim()], 'ylim': [float(v) for v in ax.get_ylim()],
-                    'xscale': ax.get_xscale(), 'yscale': ax.get_yscale()})
+                    'xscale': ax.get_xscale(), 'yscale': ax.get_yscale(),
+                    # dates: x is in days since 1970 (Matplotlib's epoch), limits are written as dates
+                    'xdate': isinstance(ax.xaxis.get_major_formatter(), (mdates.AutoDateFormatter, mdates.ConciseDateFormatter,
+                                                                         mdates.DateFormatter))})
+    return out
+
+
+MAX_MOVABLES = 400
+
+
+def movables(fig):
+    """The texts the user can drag and rewrite on the preview (named by _move_text, _place_labels, _tag_legend):
+    [{'id', 'kind': 'text' | 'label' | 'legend', 'box': [x0, y0, x1, y1] (fractions of the figure from the bottom
+    left), 'offset': [dx, dy] points already applied, 'text': what it says, 'field': where the specification keeps
+    it (None: spec['texts']), 'anchor': the point a value label belongs to, 'ref': a legend's axes box}]."""
+    from matplotlib.legend import Legend
+    from matplotlib.text import Text
+    renderer = fig._get_renderer()
+    W, H = fig.bbox.width, fig.bbox.height
+    frac = lambda bb: [round(float(v), 5) for v in (bb.x0 / W, bb.y0 / H, bb.x1 / W, bb.y1 / H)]  # noqa: E731
+    first = next((ax for ax in fig.axes if ax.get_visible() and ax.get_label() != '<colorbar>'), None)
+    out = []
+    for artist in dict.fromkeys(fig.findobj(lambda a: hasattr(a, '_pp_id'))):
+        if len(out) >= MAX_MOVABLES or not artist.get_visible():
+            continue
+        extra, kind = {}, 'text'
+        if isinstance(artist, Legend):
+            parent = artist.axes if artist.axes is not None else first
+            if parent is None:
+                continue
+            kind, text = 'legend', artist.get_title().get_text()
+            extra['ref'] = frac(parent.bbox)
+            bb = artist.get_window_extent(renderer)
+        elif getattr(artist, '_pp_label', False):            # a value label: listed while its point is in view
+            ax = artist.axes
+            p = ax.transData.transform(artist.xy)
+            if not (np.isfinite(p).all() and ax.bbox.x0 - 1 <= p[0] <= ax.bbox.x1 + 1 and ax.bbox.y0 - 1 <= p[1] <= ax.bbox.y1 + 1):
+                continue
+            artist.update_positions(renderer)
+            kind, text = 'label', artist.get_text()
+            extra['anchor'] = [float(p[0] / W), float(p[1] / H)]
+            bb = Text.get_window_extent(artist, renderer)   # the text alone, without its leader line
+        else:
+            text = artist.get_text()
+            if not text:
+                continue
+            bb = artist.get_window_extent(renderer)
+        if not (bb.width > 0 and bb.height > 0 and np.isfinite(bb.extents).all()):
+            continue
+        out.append({'id': artist._pp_id, 'kind': kind, 'box': frac(bb), 'text': text,
+                    'field': getattr(artist, '_pp_field', None),
+                    'offset': [float(v) for v in getattr(artist, '_pp_offset', (0, 0))], **extra})
+    return out
+
+
+def zoom_axes(fig):
+    """Axes zoomed with the mouse wheel rather than a box: polar (the radius) and 3D (the three ranges)."""
+    W, H = fig.bbox.width, fig.bbox.height
+    out = []
+    for ax in fig.axes:
+        if not ax.get_visible() or ax.name not in ('polar', '3d'):
+            continue
+        bb = ax.bbox
+        item = {'type': ax.name, 'box': [float(bb.x0 / W), float(bb.y0 / H), float(bb.x1 / W), float(bb.y1 / H)]}
+        if ax.name == 'polar':
+            item['rlim'] = [float(v) for v in ax.get_ylim()]
+        else:
+            item.update(xlim=[float(v) for v in ax.get_xlim()], ylim=[float(v) for v in ax.get_ylim()],
+                        zlim=[float(v) for v in ax.get_zlim()])
+        out.append(item)
     return out
 
 
