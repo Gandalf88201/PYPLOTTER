@@ -21,7 +21,7 @@ import traceback
 from urllib.parse import quote, unquote, urlsplit
 
 from . import __version__, catalog
-from .modules import MissingModules, MissingUserModules, ModuleManager, clean_appledouble
+from .modules import MissingModules, MissingUserModules, ModuleManager, canonical, clean_appledouble
 
 ROOT = Path(__file__).resolve().parent.parent
 WEB = ROOT / 'web'
@@ -258,7 +258,7 @@ class App:
         return self._plugins
 
     def analyses(self):
-        return self.plugin_manager().describe(missing=self.modules.missing)
+        return self.plugin_manager().describe(missing=self.modules.missing, blocked=self.modules.unusable)
 
     def run_analysis(self, body):
         from .plugins import PluginError
@@ -269,6 +269,10 @@ class App:
         except PluginError as exc:
             raise ApiError(str(exc), 404, 'plugin')
         self.modules.require(self.modules.core_ids() + plugin['requires'])
+        blocked = self.modules.unusable(plugin['requires'], plugin['imports'])
+        if blocked:
+            raise ApiError('This analysis needs modules that do not import: '
+                           + '; '.join(f'{name} ({error})' for name, error in blocked), 409, 'blocked_module')
         lang = body.get('lang') if body.get('lang') in ('en', 'it') else 'en'
         spec = body.get('spec') or {}
         try:
@@ -361,13 +365,18 @@ class App:
                 return pm.create(body.get('name'))
             if action == 'customize':
                 return pm.customize(str(body.get('id')))
+            if action == 'integration':          # the first analysis using one of the user's modules
+                rec = self.modules.user.get(canonical(str(body.get('name') or '')))
+                if not rec:
+                    raise PluginError('Not one of your modules.')
+                return pm.create_integration(rec['pip'], (rec.get('imports') or [''])[0])
             if action == 'disable':
                 return pm.disable(body.get('file'))
             if action == 'folder':
                 return pm.open_folder()
             if action == 'reload':
                 pm.reload()
-                return pm.describe(missing=self.modules.missing)
+                return self.analyses()
         except (PluginError, OSError) as exc:
             raise ApiError(str(exc), 422, 'plugin')
         raise ApiError('Unknown plugin action.', 404)

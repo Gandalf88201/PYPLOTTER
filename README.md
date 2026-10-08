@@ -83,7 +83,17 @@ printed in the terminal window. Options:
     correlation with p-values, linear models and ANOVA with R-style formulas (statsmodels),
     distribution fitting ranked by AIC;
   - *signal* — baseline, Savitzky–Golay smoothing and derivatives, power spectrum, peak finding
-    (height, FWHM and area above the baseline), integrals.
+    (height, FWHM and area above the baseline), integrals, and **IR peak assignment**: on a mid-IR
+    spectrum (absorbance or transmittance; cm⁻¹, µm or nm) it finds the peaks and lists for each the
+    candidate groups from a table of about 110 characteristic bands — organic groups, and inorganic anions
+    and minerals (carbonates, sulfates, silicates, oxalates…) for materials and conservation science. The
+    candidates are ranked by range, intensity and width, and by the other bands the same group needs (an
+    ester C–O only with an ester C=O, an aryl ether only with an aromatic ring, organic groups only with
+    C–H bands); each gets a confidence, the figure shows “1738 C=O” above the peaks (“?” when uncertain),
+    and a table lists the groups that explain the most peaks. Groups with S, P, Si or halogens are offered
+    on request. They are candidates, not proofs: the table (`BANDS` in `ir_assign.py`, editable with
+    *Customise*) holds standard values from the references in REFERENCES.md. *Examples › IR spectrum* is
+    a synthetic spectrum to try it on.
   Results are **drawn on a copy of the original figure**, in its own tab next to *Figure* (close it
   with ×; the original is never changed), with their error bands (95 % confidence or prediction band
   of fits and regressions, mean ± SEM of block averaging, smoothed curves, peak markers) — a fit
@@ -127,7 +137,19 @@ printed in the terminal window. Options:
   to cite (shown with the results of analyses whose plugin lists the module in `requires`) and an
   *Uninstall* button (refused when another package needs the module). They are recorded in
   `~/.pyplotter/user-modules.json`: in a new environment they are shown as *not installed* with
-  *Install again*. These are **third-party code** that PyPlotter does not check: install only what
+  *Install again*. The import check goes deeper for your modules: each one is imported **with its
+  submodules**, because a package whose `import` works may still have every part that does the work
+  broken (uvvispy 0.1.1 with setuptools 84: `No module named 'pkg_resources'`). When more than half
+  of its parts fail it is *cannot be used* (red); when fewer fail, usually optional parts, it *works
+  in part* (amber). Either way the failing parts are listed, grouped by cause. The check also runs
+  right after installing: a module that **cannot be used is removed again**, with the packages that
+  came with it, and the packages it upgraded go back to their versions, so the environment stays as it
+  was and the reason is shown. Installing a module only makes it available to analyses: its features
+  appear in PyPlotter through plugins that list it in `requires` (its **integration**). A module that
+  no plugin uses says so, with *Create integration*, which writes a first, editable analysis that uses
+  it. Once a module imports and is used, **its icon appears at the end of the bar of plot types**: it
+  lists its functions (only the ones that work, if the module works in part), and choosing one opens it
+  in *Analysis* (see PLUGINS.md). These are **third-party code** that PyPlotter does not check: install only what
   you trust. The licence check reads the package metadata; it is a help, not legal advice.
 
 ## Privacy and security
@@ -206,7 +228,17 @@ con un solo pulsante e una barra di avanzamento. Tieni aperta la finestra del te
   correlazione incrociata, statistica descrittiva, test di normalità, confronto tra gruppi (t-test,
   ANOVA, Kruskal–Wallis, Tukey…), correlazioni, regressione e ANOVA con formule, fit di distribuzioni,
   smoothing, derivate, spettro, picchi, integrali — sempre con moduli Python open source e i riferimenti
-  da citare. I risultati vengono disegnati **su una copia del grafico originale**, in una scheda accanto a
+  da citare. **Assegnazione dei picchi IR**: su uno spettro IR medio (assorbanza o trasmittanza; cm⁻¹, µm
+  o nm) trova i picchi ed elenca per ognuno i gruppi candidati da una tabella di circa 110 bande
+  caratteristiche — gruppi organici, anioni inorganici e minerali (carbonati, solfati, silicati, ossalati…)
+  per la scienza dei materiali e la conservazione. I candidati sono ordinati per intervallo, intensità e
+  larghezza, e per le altre bande che lo stesso gruppo richiede (il C–O di un estere solo con il C=O di un
+  estere, un etere arilico solo con un anello aromatico, i gruppi organici solo con bande C–H); ognuno ha
+  un'affidabilità, il grafico mostra «1738 C=O» sopra i picchi («?» se incerto) e una tabella elenca i
+  gruppi che spiegano più picchi. I gruppi con S, P, Si o alogeni si includono su richiesta. Sono
+  candidati, non prove: la tabella (`BANDS` in `ir_assign.py`, modificabile con *Personalizza*) contiene
+  valori standard dai riferimenti di REFERENCES.md. *Esempi › Spettro IR* è uno spettro sintetico per
+  provarla. I risultati vengono disegnati **su una copia del grafico originale**, in una scheda accanto a
   *Figura* che si chiude con × (l'originale non cambia mai), con le loro bande d'errore (confidenza o
   predizione al 95% di fit e regressioni, media ± SEM del block averaging, curve filtrate, picchi; un fit
   pesato mostra anche le barre d'errore dei dati). Le analisi eseguite con una copia aperta si aggiungono
@@ -246,7 +278,21 @@ con un solo pulsante e una barra di avanzamento. Tieni aperta la finestra del te
   nomi di pacchetti (niente versioni, URL, percorsi od opzioni di pip). I tuoi moduli sono elencati
   con licenza, pacchetti installati con essi, un riferimento da citare (facoltativo) e il pulsante
   *Disinstalla*; sono registrati in `~/.pyplotter/user-modules.json`, così in un nuovo ambiente
-  compaiono come *non installati* con *Installa di nuovo*. Sono **codice di terze parti** non
+  compaiono come *non installati* con *Installa di nuovo*. Per i tuoi moduli il controllo è più
+  severo: ognuno viene importato **con i suoi sottomoduli**, perché un pacchetto il cui `import`
+  funziona può avere rotte tutte le parti che fanno il lavoro (uvvispy 0.1.1 con setuptools 84:
+  `No module named 'pkg_resources'`). Se non si importa più della metà delle parti è *non
+  utilizzabile* (rosso); se ne falliscono meno, di solito parti facoltative, *funziona in parte*
+  (arancione). In entrambi i casi le parti che non si importano sono elencate, raggruppate per causa.
+  Il controllo parte anche subito dopo l'installazione: un modulo **non utilizzabile viene tolto di
+  nuovo**, con i pacchetti arrivati insieme, e i pacchetti che aveva aggiornato tornano alle loro
+  versioni; l'ambiente resta com'era e viene mostrato il motivo. Installare un modulo lo rende solo
+  disponibile alle analisi: le sue funzioni compaiono in PyPlotter tramite i plugin che lo elencano in
+  `requires` (la sua **integrazione**). Un modulo che nessun plugin usa lo dice, con *Crea
+  integrazione*, che scrive una prima analisi modificabile che lo usa. Quando un modulo si importa ed è
+  usato, **la sua icona compare in fondo alla barra dei tipi di grafico**: elenca le sue funzioni (solo
+  quelle che funzionano, se il modulo funziona in parte) e sceglierne una la apre in *Analisi* (vedi
+  PLUGINS.md). Sono **codice di terze parti** non
   controllato da PyPlotter: installa solo ciò di cui ti fidi. Il controllo della licenza legge i
   metadati del pacchetto: è un aiuto, non una consulenza legale.
 

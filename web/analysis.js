@@ -15,8 +15,13 @@ window.Analysis = (() => {
   // ---------------------------------------------------------------- list
   async function load(force = false) {
     if (A.list && !force) return A.list;
-    A.list = await api('/api/analyses', {});
-    return A.list;
+    if (A.loading && !force) return A.loading;
+    A.loading = api('/api/analyses', {}).then(list => {
+      A.list = list;
+      analysesChanged();                 // the icons of the user's modules follow the list
+      return list;
+    }).finally(() => { A.loading = null; });
+    return A.loading;
   }
 
   async function show() {
@@ -49,6 +54,7 @@ window.Analysis = (() => {
         o.value = p.id;
         let tag = '';
         if (p.missing.length) tag = `  (↓ ${p.missing.join(', ')})`;
+        else if (p.blocked.length) tag = `  (✕ ${p.blocked.map(b => b[0]).join(', ')})`;
         else if (p.source === 'user') tag = `  (${p.overrides ? t('an.custom') : t('an.user')})`;
         o.textContent = L(p.name) + tag;
         o.title = L(p.description);
@@ -172,6 +178,13 @@ window.Analysis = (() => {
       const note = document.createElement('span');
       note.className = 'small muted';
       note.textContent = t('an.needs', { mods: p.missing.join(', ') });
+      actions.append(note);
+    } else if (p.blocked.length) {             // installed, but (a part of) a module it needs does not import
+      run.disabled = true;
+      const note = document.createElement('span');
+      note.className = 'small an-blocked';
+      note.textContent = t('an.blocked', { mods: p.blocked.map(b => b[0]).join(', ') });
+      note.title = p.blocked.map(b => `${b[0]}: ${b[1]}`).join('\n');
       actions.append(note);
     }
     main.append(actions);
@@ -596,6 +609,31 @@ window.Analysis = (() => {
     } catch (e) { handleError(e); }
   }
 
+  // The first analysis using one of the user's modules (Modules › Your modules, or "New function"
+  // in the module's icon): created in the plugins folder and opened in the editor.
+  async function newIntegration(name) {
+    try {
+      const r = await api('/api/plugins/integration', { name });
+      await load(true);
+      const created = A.list.plugins.find(p => p.file === r.file);
+      if (created) A.current = created.id;
+      show();
+      openEditor({ file: r.file });
+    } catch (e) { handleError(e); }
+  }
+
+  // A function chosen from a module's icon: shown in the analysis panel, ready to run on the open data.
+  async function select(id) {
+    const card = $('#analysisCard');
+    card.open = true;
+    if (!state.dataset) toast(t('tools.need_data'), true);
+    else {
+      A.current = id;
+      await show();
+    }
+    card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }
+
   async function openEditor(ref) {
     try {
       const r = await api('/api/plugins/read', ref);
@@ -667,6 +705,6 @@ window.Analysis = (() => {
     try { await load(true); renderList(); } catch (e) { /* the list stays as it was */ }
   }
 
-  return { show, updateDerived, load, renderList, reset, viewsChanged, modulesChanged,
-    relabel: () => { if (A.list) show(); } };
+  return { show, updateDerived, load, renderList, reset, viewsChanged, modulesChanged, newIntegration, select,
+    list: () => A.list, relabel: () => { if (A.list) show(); } };
 })();

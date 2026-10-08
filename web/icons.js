@@ -34,4 +34,6 @@
     scatter3d: `${axes3}<g ${F}><circle cx="10" cy="12" r="1.6"/><circle cx="14" cy="8" r="1.3"/><circle cx="17" cy="11" r="1.1"/><circle cx="8" cy="7" r="1"/><circle cx="12" cy="15" r="1.8"/><circle cx="19" cy="6" r=".9"/></g>`,
     waterfall: `${axes3}<path d="M5 19c2 0 2-5 3.5-5s1.5 4 3.5 4 1-2 3-2" ${S}/><path d="M8 15c2 0 2-6 3.5-6s1.5 5 3.5 5 1-2 3-2" ${S} opacity=".7"/><path d="M11 11c2 0 2-7 3.5-7s1.5 6 3.5 6 1-2 3-2" ${S} opacity=".45"/>`,
   };
+  // A module added from PyPI (after the plot types): a puzzle piece.
+  window.MODULE_ICON = `<path d="M4 7h4.5a2.5 2.5 0 0 1 5 0H18v4.5a2.5 2.5 0 0 1 0 5V21h-4.5a2.5 2.5 0 0 0-5 0H4v-4.5a2.5 2.5 0 0 0 0-5z" fill="currentColor" opacity=".15"/><path d="M4 7h4.5a2.5 2.5 0 0 1 5 0H18v4.5a2.5 2.5 0 0 1 0 5V21h-4.5a2.5 2.5 0 0 0-5 0H4v-4.5a2.5 2.5 0 0 0 0-5z" ${S}/>`;
 })();

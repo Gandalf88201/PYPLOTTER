@@ -70,6 +70,13 @@ Each analysis lists its references in the app next to the result; they are colle
 - Baseline through anchor points, smooth curve (PCHIP) — Fritsch, F. N. & Carlson, R. E. Monotone piecewise cubic interpolation. *SIAM J. Numer. Anal.* 17, 238–246 (1980). doi:10.1137/0717021
 - Automatic equilibration detection (recipe *Equilibration of a simulation*) — Chodera, J. D. A simple method for automated equilibration detection in molecular simulations. *J. Chem. Theory Comput.* 12, 1799–1805 (2016). doi:10.1021/acs.jctc.5b00784
 - Histogram bin width (recipe *Gaussian distribution*) — Freedman, D. & Diaconis, P. On the histogram as a density estimator: L2 theory. *Z. Wahrscheinlichkeitstheorie verw. Gebiete* 57, 453–476 (1981). doi:10.1007/BF01025868
+- IR peak assignment, table of characteristic frequencies (`pyplotter/analyses/ir_assign.py`, `BANDS`: standard values compiled for PyPlotter, to be checked against these sources) —
+  Socrates, G. *Infrared and Raman Characteristic Group Frequencies: Tables and Charts*, 3rd ed. Wiley, Chichester (2001);
+  Silverstein, R. M., Webster, F. X., Kiemle, D. J. & Bryce, D. L. *Spectrometric Identification of Organic Compounds*, 8th ed. Wiley, Hoboken (2014);
+  Pretsch, E., Bühlmann, P. & Badertscher, M. *Structure Determination of Organic Compounds: Tables of Spectral Data*, 4th ed. Springer, Berlin (2009). doi:10.1007/978-3-540-93810-1;
+  Larkin, P. J. *Infrared and Raman Spectroscopy: Principles and Spectral Interpretation*, 2nd ed. Elsevier, Amsterdam (2018);
+  Farmer, V. C. (ed.) *The Infrared Spectra of Minerals*. Mineralogical Society Monograph 4, London (1974). doi:10.1180/mono-4;
+  Derrick, M. R., Stulik, D. & Landry, J. M. *Infrared Spectroscopy in Conservation Science*. Getty Conservation Institute, Los Angeles (1999).
 
 ## Journal size presets / Formati rivista
 

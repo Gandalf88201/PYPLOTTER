@@ -2,7 +2,7 @@
 import numpy as np
 import pandas as pd
 
-NAMES = ('spectra', 'kinetics', 'groups', 'surface', 'cloud')
+NAMES = ('spectra', 'ir', 'kinetics', 'groups', 'surface', 'cloud')
 
 
 def make(name):
@@ -18,6 +18,19 @@ def make(name):
             'Sample B': peak(470, 20, 0.8) + peak(600, 30, 0.6) + rng.normal(0, 0.008, wl.size),
             'Sample C': peak(500, 15, 0.55) + peak(650, 22, 0.9) + rng.normal(0, 0.008, wl.size),
         })
+    if name == 'ir':
+        # Mid-IR transmittance from Lorentzian bands placed like those of a small hydroxy ester (O–H, C–H,
+        # C=O, C–O): an invented example, not a measured spectrum.
+        nu = np.arange(4000.0, 399.0, -2.0)
+
+        def band(c, fwhm, a):
+            return a / (1 + ((nu - c) / (fwhm / 2)) ** 2)
+        absorbance = sum(band(*b) for b in [
+            (3450, 260, 0.30), (2985, 30, 0.22), (2940, 26, 0.15), (2880, 24, 0.08), (1738, 26, 0.95),
+            (1455, 22, 0.16), (1375, 16, 0.22), (1265, 34, 0.45), (1210, 30, 0.40), (1130, 28, 0.55),
+            (1045, 24, 0.35), (860, 18, 0.10)])
+        absorbance = absorbance + 0.02 + rng.normal(0, 0.002, nu.size)
+        return pd.DataFrame({'Wavenumber (cm⁻¹)': nu, 'Transmittance (%)': 100 * 10 ** -absorbance})
     if name == 'kinetics':
         t = np.linspace(0, 60, 25)
         c = 1.0 * np.exp(-t / 14.0)

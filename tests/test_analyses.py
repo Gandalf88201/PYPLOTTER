@@ -49,6 +49,7 @@ class TestBuiltins(unittest.TestCase):
         ('smoothing', 'spectra', {'x': 'Wavelength (nm)', 'y': 'Sample A'}),
         ('spectrum', 'spectra', {'y': 'Sample A'}),
         ('peaks', 'spectra', {'x': 'Wavelength (nm)', 'y': 'Sample C'}),
+        ('ir_assign', 'ir', {'x': 'Wavenumber (cm⁻¹)', 'y': 'Transmittance (%)'}),
         ('integrate', 'spectra', {'x': 'Wavelength (nm)', 'y': 'Sample A'}),
         ('baseline', 'spectra', {'x': 'Wavelength (nm)', 'y': 'Sample C', 'baseline': 'arpls'}),
         ('recipe_gaussian', 'cloud', {'y': 'w'}),
@@ -145,6 +146,78 @@ class TestBuiltins(unittest.TestCase):
         self.assertEqual(labels['text'], 'text')
         self.assertEqual([float(t) for t in labels['frame']['text']],          # the centres, 4 significant digits
                          [float(f'{res.get(k):.4g}') for k in ('centre1', 'centre2')])
+
+    @staticmethod
+    def ir(bands, unit='cm-1'):
+        """A synthetic mid-IR absorbance spectrum from Lorentzian bands (centre cm⁻¹, FWHM, height)."""
+        import numpy as np
+        import pandas as pd
+        nu = np.arange(4000.0, 399.0, -2.0)
+        a = 0.02 + sum(h / (1 + ((nu - c) / (w / 2)) ** 2) for c, w, h in bands)
+        a = a + np.random.default_rng(1).normal(0, 0.002, nu.size)
+        x, name = (nu, 'Wavenumber (cm-1)') if unit == 'cm-1' else (1e4 / nu, 'Wavelength (µm)')
+        return pd.DataFrame({name: x, 'Absorbance': a}), name
+
+    @staticmethod
+    def best(res):
+        """{rounded position: (best family, confidence)} of an IR assignment."""
+        return {round(a['position'] / 10) * 10: (a['candidates'][0]['family'], a['candidates'][0]['confidence'])
+                for a in res.get('assignments') if a['candidates']}
+
+    def test_ir_assignment_of_the_example(self):
+        df = samples.make('ir')
+        _, _, res = self.pm.run('ir_assign', df, {'x': 'Wavenumber (cm⁻¹)', 'y': 'Transmittance (%)'}, lang='en')
+        best = self.best(res)
+        self.assertEqual(best[1740], ('ester', 'high'))                        # C=O of a saturated ester
+        self.assertEqual(best[3450][0], 'alcohol')                              # broad hydrogen-bonded O–H
+        self.assertEqual(best[1370][0], 'alkane')                               # CH₃ umbrella
+        self.assertEqual(res.summary[1]['value'], 'transmittance, turned into absorbance A = −log₁₀ T')
+        groups = next(t for t in res.tables if t['title'].startswith('Groups'))
+        self.assertIn('ester', [r[0] for r in groups['rows']])
+        labels = res.overlays[-1]
+        self.assertEqual(labels['text'], 'assignment')
+        self.assertIn('1738 C=O', list(labels['frame']['assignment']))
+        self.assertTrue(labels['style']['text_below'])                          # transmittance: bands point down
+        # the marks sit on the spectrum, at its minima
+        self.assertTrue(all(df['Transmittance (%)'].min() <= y < 100 for y in labels['frame']['peaks']))
+
+    def test_ir_assignment_needs_companion_bands(self):
+        # Hexanoic-acid-like: acid C=O, C–O and O–H bends; no O–H stretch above 3200.
+        df, x = self.ir([(3000, 500, 0.35), (2958, 25, 0.5), (2933, 25, 0.6), (2872, 20, 0.3), (1710, 30, 1.0),
+                         (1465, 20, 0.2), (1413, 25, 0.3), (1285, 35, 0.45), (1230, 30, 0.35), (935, 60, 0.3)])
+        _, _, res = self.pm.run('ir_assign', df, {'x': x, 'y': 'Absorbance'}, lang='en')
+        best = self.best(res)
+        for pos in (1710, 1410, 1280, 1230, 930):
+            self.assertEqual(best[pos][0], 'acid', pos)
+        self.assertTrue(any('No band at 3650–3200' in t for t in res.texts))
+        # Calcite and gypsum: inorganic bands, no organic group without C–H bands.
+        df, x = self.ir([(3545, 60, 0.3), (3405, 120, 0.35), (1685, 25, 0.15), (1621, 25, 0.2), (1425, 90, 1.0),
+                         (1120, 70, 0.9), (875, 12, 0.35), (712, 8, 0.15), (669, 12, 0.3), (602, 12, 0.3)])
+        _, _, res = self.pm.run('ir_assign', df, {'x': x, 'y': 'Absorbance'}, lang='en')
+        best = self.best(res)
+        self.assertEqual({best[p][0] for p in (1420, 870, 710)}, {"carbonate"})
+        self.assertEqual({best[p][0] for p in (1120, 670, 600)}, {'sulfate'})
+        self.assertEqual({best[p][0] for p in (1680, 1620, 3400)}, {'water'})
+        # Aromatic: ring bands, not alkene; and wavelengths in µm are read as such.
+        df, x = self.ir([(3082, 10, 0.15), (3060, 10, 0.25), (3026, 10, 0.3), (2923, 20, 0.6), (2850, 15, 0.3),
+                         (1601, 8, 0.2), (1493, 10, 0.4), (1452, 12, 0.4), (757, 12, 0.6), (698, 12, 1.0)], unit='um')
+        _, _, res = self.pm.run('ir_assign', df, {'x': x, 'y': 'Absorbance'}, lang='en')
+        best = self.best(res)
+        self.assertEqual(res.summary[2]['value'], 'µm')
+        self.assertEqual({best[p][0] for p in (3060, 3030, 1600, 1490, 760, 700)}, {'aromatic'})
+        self.assertTrue(any('No strong band at 1850–1650' in t for t in res.texts))
+
+    def test_ir_assignment_options(self):
+        from pyplotter.analyses import ir_assign
+        everything, chon = ir_assign.bands('all', 'all'), ir_assign.bands('all', 'chon')
+        self.assertGreater(len(everything), len(chon))
+        self.assertFalse({b['family'] for b in chon} & ir_assign.HETEROATOM)
+        self.assertTrue(all(ir_assign.FAMILIES[b['family']][1] != 'o' for b in ir_assign.bands('inorganic')))
+        self.assertTrue(ir_assign.is_transmittance([90, 95, 40, 96, 97, 94, 60, 95], 'signal'))
+        self.assertFalse(ir_assign.is_transmittance([0.02, 0.01, 0.6, 0.02, 0.03, 0.4, 0.01], 'signal'))
+        self.assertEqual(ir_assign.x_unit([400, 4000], 'Wavelength (nm)'), 'nm')
+        with self.assertRaises(ValueError):                                     # a UV-Vis spectrum is not mid-IR
+            self.pm.run('ir_assign', samples.make('spectra'), {'x': 'Wavelength (nm)', 'y': 'Sample A'})
 
     @staticmethod
     def spectrum():

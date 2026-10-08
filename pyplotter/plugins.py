@@ -255,16 +255,19 @@ class PluginManager:
         if not isinstance(meta, dict) or not callable(getattr(module, 'run', None)):
             raise PluginError('A plugin needs a PLUGIN dictionary and a run(df, p, ctx) function.')
         meta = validate_meta(meta)
-        return {**meta, 'module': module, 'source': source, 'file': path.name, 'path': str(path)}
+        return {**meta, 'module': module, 'source': source, 'file': path.name, 'path': str(path),
+                'imports': imported_modules(path)}
 
     # -------------------------------------------------------------- listing & running
-    def describe(self, missing=lambda ids: []):
+    def describe(self, missing=lambda ids: [], blocked=lambda requires, imports: []):
+        """missing(requires): modules not installed; blocked(requires, imports): [module, error] pairs of
+        installed modules (or parts of them) that do not import, so the analysis cannot run."""
         out = []
         for p in sorted(self.plugins.values(), key=lambda p: (CATEGORIES.index(p['category'])
                                                                if p['category'] in CATEGORIES else 99, p['order'], p['id'])):
             out.append({k: p[k] for k in ('id', 'name', 'description', 'category', 'params', 'requires',
                                            'references', 'source', 'file', 'overrides', 'steps')}
-                       | {'missing': missing(p['requires'])})
+                       | {'missing': missing(p['requires']), 'blocked': blocked(p['requires'], p['imports'])})
         return {'plugins': out, 'errors': self.errors, 'user_dir': str(self.user_dir)}
 
     def get(self, pid):
@@ -324,6 +327,22 @@ class PluginManager:
         title = ' '.join(str(name or 'My analysis').split())     # one line; repr() escapes quotes and backslashes
         code = (TEMPLATE.replace('my_analysis', pid)
                 .replace("{'en': 'My analysis', 'it': 'La mia analisi'}", f"{{'en': {title!r}, 'it': {title!r}}}"))
+        return self.save(path.name, code)
+
+    def create_integration(self, package, import_name):
+        """A first analysis that uses one of the user's modules (listed in its "requires"): the start of an
+        integration, which puts the module's icon in the bar of plot types. Returns save()'s answer."""
+        if not re.fullmatch(r'[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?', str(package or '')) \
+                or not str(import_name or '').isidentifier():
+            raise PluginError('Not a package name.')
+        slug = re.sub(r'[^a-z0-9_]+', '_', package.lower()).strip('_')[:40]
+        slug = slug if slug[:1].isalpha() else 'm_' + slug
+        path, n = self.user_path(f'{slug}_tools.py'), 1
+        while path.exists() or path.stem in self.plugins:
+            n += 1
+            path = self.user_path(f'{slug}_tools_{n}.py')
+        code = (INTEGRATION.replace('PACKAGE', package).replace('IMPORT_NAME', import_name)
+                .replace('PLUGIN_ID', path.stem))
         return self.save(path.name, code)
 
     def customize(self, pid):
@@ -492,6 +511,24 @@ def coerce_params(params, given, df, role_values=None):
     return out
 
 
+def imported_modules(path):
+    """Every module a plugin file imports, wherever the import is (top level or inside run()):
+    "from a import b" gives "a" and "a.b", since b may be a submodule."""
+    import ast
+    try:
+        tree = ast.parse(Path(path).read_text(encoding='utf-8'))
+    except (OSError, SyntaxError, ValueError):
+        return []
+    out = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            out.update(a.name for a in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
+            out.add(node.module)
+            out.update(f'{node.module}.{a.name}' for a in node.names if a.name != '*')
+    return sorted(out)
+
+
 def _short_tb(exc, path):
     tb = traceback.extract_tb(exc.__traceback__)
     lines = [f'line {f.lineno}: {f.line}' for f in tb if f.filename == str(path)]
@@ -543,5 +580,50 @@ def run(df, p, ctx):
     out = pd.DataFrame({xname: x, p['y']: y, 'moving average': smooth})
     r.data(out, plot={'kind': 'line', 'x': xname, 'y': [p['y'], 'moving average'],
                       'series': {p['y']: {'alpha': 0.4}}})
+    return r
+'''
+
+
+INTEGRATION = '''"""PACKAGE in PyPlotter — the start of an integration (edit freely, then "Save & reload").
+
+Every analysis whose PLUGIN lists "PACKAGE" in "requires" is a function of the PACKAGE icon in the
+bar of plot types; copy this file (with a new "id") for each function you want there. The module is
+imported inside run(), so PyPlotter starts even where PACKAGE is not installed.
+
+PyPlotter calls run(df, p, ctx):
+  df   the current data as a pandas DataFrame
+  p    the parameter values chosen in the form (types already checked)
+  ctx  helpers: ctx.result(), ctx.xy(df, x, y), ctx.numeric(df, col), ctx.tr(en, it), ctx.lang
+Return ctx.result() filled with .value(), .table(), .text(), .data(DataFrame, plot={...}),
+.overlay(...) (a curve over the figure) and .cite(...): see PLUGINS.md.
+"""
+import numpy as np
+import pandas as pd
+
+PLUGIN = {
+    'id': 'PLUGIN_ID',
+    'name': {'en': 'PACKAGE: first function', 'it': 'PACKAGE: prima funzione'},
+    'category': 'custom',
+    'description': {'en': 'Starting point: hands one column to PACKAGE. Edit run() to call its functions.',
+                    'it': 'Punto di partenza: passa una colonna a PACKAGE. Modifica run() per usarne le funzioni.'},
+    'requires': ['PACKAGE'],
+    'params': [
+        {'id': 'x', 'type': 'column', 'optional': True, 'default': 'x', 'label': {'en': 'X (optional)', 'it': 'X (facoltativa)'}},
+        {'id': 'y', 'type': 'column', 'default': 'y', 'label': {'en': 'Column', 'it': 'Colonna'}},
+    ],
+    'references': [],
+}
+
+
+def run(df, p, ctx):
+    import IMPORT_NAME
+
+    x, y = ctx.xy(df, p['x'], p['y'])
+    r = ctx.result()
+    r.value(ctx.tr('PACKAGE version', 'Versione di PACKAGE'), getattr(IMPORT_NAME, '__version__', '?'))
+    r.value('N', y.size)
+    # Call PACKAGE here on x and y, then show what it returns, e.g. a new curve over the figure:
+    #   out = pd.DataFrame({'x': x, 'result': y})
+    #   r.overlay(out, 'x', 'result', label='PACKAGE')
     return r
 '''

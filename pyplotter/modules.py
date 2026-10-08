@@ -5,12 +5,15 @@ At each start the latest versions are fetched from PyPI in the background and ca
 ~/.pyplotter/pypi-cache.json, so the list also works offline. Installs run
 ``python -m pip`` in this interpreter's environment and report a single progress value.
 Installed modules are also imported once in a separate Python (at start and after every
-install), so a package that pip lists but that cannot be loaded is reported as broken.
+install), so a package that pip lists but that cannot be loaded is reported as broken. The user's
+modules are imported with their submodules: one whose parts all fail is unusable, even when its
+top-level ``import`` works; one where only some parts fail works in part.
 
 Besides the registry, the user can add any package from PyPI ("your modules"): its licence and the
 licences of everything pip would install with it are shown first, a licence that is not
 OSI-approved needs an explicit confirmation, and the choice is recorded in
 ~/.pyplotter/user-modules.json (so the modules can be installed again in a new environment).
+A module that cannot be used once installed is removed again, with what came with it.
 """
 import importlib
 import importlib.metadata as metadata
@@ -45,6 +48,63 @@ except BaseException as exc:
     print(f"{type(exc).__name__}: {exc}")
     sys.exit(1)
 '''
+# The user's modules are checked deeper: a package whose __init__ imports nothing (uvvispy) loads
+# even when every part that does the work fails. Each top-level module and its public direct
+# submodules are imported; a "PYPLOTTER-TRY" line before each import names the culprit if Python
+# dies, and one "PYPLOTTER-RESULT" JSON line ends the check. What the packages print goes to stderr.
+DEEP_CHECK = '''import importlib, json, pkgutil, sys, types
+out, sys.stdout = sys.stdout, sys.stderr
+SKIP = set(json.loads(sys.argv.pop(1)))
+res = {"top": [], "own": 0, "parts": 0, "failed": []}
+def attempt(name):
+    print("PYPLOTTER-TRY " + name, file=out, flush=True)
+    try:
+        return importlib.import_module(name), ""
+    except BaseException as exc:
+        return None, f"{type(exc).__name__}: {exc}"[:300]
+for top in sys.argv[1:]:
+    mod, err = attempt(top)
+    res["top"].append([top, err])
+    if mod is None:
+        continue
+    res["own"] += sum(1 for k, v in vars(mod).items() if not k.startswith("_") and not isinstance(v, types.ModuleType))
+    for info in sorted(pkgutil.iter_modules(getattr(mod, "__path__", None) or []), key=lambda i: i.name)[:80]:
+        if info.name.startswith("_") or info.name in SKIP:
+            continue
+        res["parts"] += 1
+        _, err = attempt(top + "." + info.name)
+        if err:
+            res["failed"].append([top + "." + info.name, err])
+print("PYPLOTTER-RESULT " + json.dumps(res), file=out, flush=True)
+'''
+DEEP_SKIP = {'test', 'tests', 'testing', 'conftest', 'setup', 'docs', 'doc', 'examples', 'example', 'benchmarks'}
+
+
+def _deep_names(imports):
+    """The top-level modules of a user's module to check (a stray "tests" package is not one)."""
+    return [n for n in imports if n not in DEEP_SKIP] or list(imports[:1])
+
+
+def deep_verdict(stdout, returncode):
+    """{'ok', 'error', 'failed', 'parts'} from the output of DEEP_CHECK. failed: the [module, error]
+    pairs that do not import, out of `parts` (the submodules, plus the top level when it defines
+    anything itself). A module is unusable when its top level fails or more than half of its parts
+    fail (uvvispy: 6 of 6, aspecd: 14 of 16); with fewer failures (optional parts) it works in part."""
+    lines = (stdout or '').splitlines()
+    found = next((l.split(' ', 1)[1] for l in reversed(lines) if l.startswith('PYPLOTTER-RESULT ')), None)
+    if found is None:
+        last = next((l.split(' ', 1)[1] for l in reversed(lines) if l.startswith('PYPLOTTER-TRY ')), '?')
+        return {'ok': False, 'error': f'Python stopped while importing {last} (exit code {returncode}).',
+                'failed': [], 'parts': 0}
+    res = json.loads(found)
+    bad_top = [[n, e] for n, e in res['top'] if e]
+    if len(bad_top) == len(res['top']):
+        return {'ok': False, 'error': bad_top[0][1] if bad_top else 'Nothing to import.', 'failed': [], 'parts': 0}
+    failed = bad_top + res['failed']
+    parts = res['parts'] + len(res['top']) - 1 + (1 if res['own'] else 0)
+    if 2 * len(failed) > parts:
+        return {'ok': False, 'error': failed[0][1], 'failed': failed, 'parts': parts}
+    return {'ok': True, 'error': '', 'failed': failed, 'parts': parts}
 
 
 # A plain PyPI project name (PEP 508): no version, extras, URL, path or pip option can get through.
@@ -366,7 +426,9 @@ class ModuleManager:
         try:
             data = json.loads(self.check_file.read_text(encoding='utf-8'))
             if data.get('python') == self.python and isinstance(data.get('checks'), dict):
-                return {k: {**v, 'gen': 0} for k, v in data['checks'].items() if k in self.by_id or k.startswith('user:')}
+                # A user's module checked before the deep check existed is checked again.
+                return {k: {**v, 'gen': 0} for k, v in data['checks'].items()
+                        if k in self.by_id or (k.startswith('user:') and v.get('deep'))}
         except Exception:
             pass
         return {}
@@ -376,8 +438,8 @@ class ModuleManager:
             self.state_dir.mkdir(parents=True, exist_ok=True)
             tmp = self.check_file.with_suffix('.tmp')
             tmp.write_text(json.dumps({'python': self.python, 'checks': {
-                k: {'version': v['version'], 'ok': v['ok'], 'error': v['error']} for k, v in self.checks.items()}},
-                indent=1), encoding='utf-8')
+                k: {key: v[key] for key in ('version', 'ok', 'error', 'failed', 'parts', 'deep') if key in v}
+                for k, v in self.checks.items()}}, indent=1), encoding='utf-8')
             tmp.replace(self.check_file)
         except OSError:
             pass
@@ -469,32 +531,44 @@ class ModuleManager:
 
     # ------------------------------------------------------------ import check (each start, after installs)
     def _check_targets(self):
-        """(check key, distribution, module to import) of every registry module and user module."""
-        out = [(m['id'], m['pip'], m.get('check') or m['import']) for m in self.modules]
-        out += [('user:' + k, r['pip'], (r.get('imports') or [k.replace('-', '_')])[0]) for k, r in self.user.items()]
+        """(check key, distribution, modules to import) of every registry module and user module.
+        A registry module imports one name; a user's module all its top-level names."""
+        out = [(m['id'], m['pip'], [m.get('check') or m['import']]) for m in self.modules]
+        for k, r in self.user.items():
+            out.append(('user:' + k, r['pip'], _deep_names(r.get('imports') or [k.replace('-', '_')])))
         return out
 
     def check_import(self, mid):
-        """Import one module in a fresh Python. Returns (ok, error message)."""
-        name = next((t[2] for t in self._check_targets() if t[0] == mid), None)
-        if name is None:
-            return False, f'Unknown module {mid}.'
+        """Import a module in a fresh Python: {'ok', 'error', 'failed', 'parts'} (see deep_verdict).
+        The user's modules are checked with their submodules (DEEP_CHECK), the registry's shallowly."""
+        names = next((t[2] for t in self._check_targets() if t[0] == mid), None)
+        if names is None:
+            return {'ok': False, 'error': f'Unknown module {mid}.', 'failed': [], 'parts': 0}
+        return self._run_check(names, deep=mid.startswith('user:'))
+
+    def _run_check(self, names, deep):
+        args = ['-c', DEEP_CHECK, json.dumps(sorted(DEEP_SKIP)), *names] if deep else ['-c', IMPORT_CHECK, names[0]]
         env = dict(os.environ, MPLBACKEND='Agg', PYTHONUNBUFFERED='1')
         flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
         try:
-            out = subprocess.run([self.python, '-c', IMPORT_CHECK, name],
+            out = subprocess.run([self.python, *args],
                                  capture_output=True, text=True, encoding='utf-8', errors='replace', env=env,
                                  cwd=tempfile.gettempdir(), timeout=IMPORT_TIMEOUT, creationflags=flags)
-        except subprocess.TimeoutExpired:
-            return False, f'The import did not finish within {IMPORT_TIMEOUT} s.'
+        except subprocess.TimeoutExpired as exc:
+            seen = exc.stdout.decode('utf-8', 'replace') if isinstance(exc.stdout, bytes) else (exc.stdout or '')
+            last = next((l.split(' ', 1)[1] for l in reversed(seen.splitlines()) if l.startswith('PYPLOTTER-TRY ')),
+                        names[0])
+            return {'ok': False, 'error': f'The import of {last} did not finish within {IMPORT_TIMEOUT} s.',
+                    'failed': [], 'parts': 0}
         except OSError as exc:
-            return False, str(exc)
+            return {'ok': False, 'error': str(exc), 'failed': [], 'parts': 0}
+        if deep:
+            return deep_verdict(out.stdout, out.returncode)
         if out.returncode == 0:
-            return True, ''
+            return {'ok': True, 'error': '', 'failed': [], 'parts': 0}
         lines = [l for l in (out.stdout.strip() or out.stderr.strip()).splitlines() if l.strip()]
-        if lines:
-            return False, lines[-1][:500]
-        return False, f'Python stopped while importing {name} (exit code {out.returncode}).'
+        error = lines[-1][:500] if lines else f'Python stopped while importing {names[0]} (exit code {out.returncode}).'
+        return {'ok': False, 'error': error, 'failed': [], 'parts': 0}
 
     def verify_async(self, force=False):
         """Check in the background that installed modules import. force: check again even if
@@ -515,13 +589,15 @@ class ModuleManager:
             for key, dist, _ in self._check_targets():
                 version = installed_version(dist)
                 old = self.checks.get(key)
-                # New or changed version, a forced check, or a module that failed before (it may be fixed now).
-                if version and not (old and old['version'] == version and old['gen'] >= gen and old['ok']):
+                # New or changed version, a forced check, or a module that failed before, even in part
+                # (it may be fixed now).
+                if version and not (old and old['version'] == version and old['gen'] >= gen and old['ok']
+                                    and not old.get('failed')):
                     todo.append((key, version))
 
             def one(item):
-                ok, error = self.check_import(item[0])
-                self.checks[item[0]] = {'version': item[1], 'ok': ok, 'error': error, 'gen': gen}
+                self.checks[item[0]] = {**self.check_import(item[0]), 'version': item[1], 'gen': gen,
+                                        'deep': item[0].startswith('user:')}
 
             with ThreadPoolExecutor(max_workers=4) as pool:
                 list(pool.map(one, todo))
@@ -703,7 +779,10 @@ class ModuleManager:
                          'accepted': bool(r.get('accepted')), 'summary': r.get('summary', ''),
                          'imports': r.get('imports', []), 'packages': r.get('packages', []), 'cite': r.get('cite', ''),
                          'added': r.get('added'), 'restart': 'user:' + key in self.restart_required,
-                         'works': check['ok'] if check else None, 'import_error': check['error'] if check else ''})
+                         'works': check['ok'] if check else None, 'import_error': check['error'] if check else '',
+                         # submodules that do not import (all of them when works is False), out of import_parts
+                         'import_failed': check.get('failed', []) if check else [],
+                         'import_parts': check.get('parts', 0) if check else 0})
         return rows
 
     def _new_job(self, kind, title, target, *args):
@@ -775,6 +854,9 @@ class ModuleManager:
         with self.install_lock:
             try:
                 self._prepare_pip(job)
+                # What the packages pip will change were before, to put them back if the module cannot be used.
+                before = {canonical(r['name']): installed_version(r['name']) for r in found['packages']
+                          if PACKAGE_NAME.fullmatch(str(r.get('name', '')))}
                 spec = f'{check_package_name(found["name"])}=={found["version"]}'
                 job.set(0.15, phase='downloading')
                 tracker = PipProgress(job, max(1, len(found['packages'])))
@@ -787,6 +869,19 @@ class ModuleManager:
                 if info is None:
                     raise RuntimeError('Not installed: ' + found['name'])
                 key = canonical(info['name'])
+                job.set(0.995, phase='checking', detail=info['name'])
+                check = self._run_check(_deep_names(info['imports']), deep=True)
+                if not check['ok']:
+                    job.set(phase='rolling_back', detail='')
+                    left = self._roll_back(job, before)
+                    job.result = {'name': info['name'], 'version': info['version'], 'rolled_back': True,
+                                  'error': check['error'], 'failed': check['failed'], 'parts': check['parts'],
+                                  'rollback_error': left}
+                    raise RuntimeError(f'{info["name"]} {info["version"]} cannot be used here ({check["error"]}): '
+                                       + ('the installation could not be fully undone: ' + left if left
+                                          else 'the installation was undone.'))
+                self.checks['user:' + key] = {**check, 'version': info['version'], 'gen': self._check_gen, 'deep': True}
+                self._write_checks()
                 old = self.user.get(key, {})
                 if any(m in sys.modules for m in info['imports']) and old.get('version') not in (None, info['version']):
                     self.restart_required.add('user:' + key)
@@ -798,10 +893,43 @@ class ModuleManager:
                     'cite': old.get('cite', ''), 'added': old.get('added') or time.strftime('%Y-%m-%d'),
                 }
                 self._write_user()
-                job.result = {'name': info['name'], 'version': info['version'], 'imports': info['imports']}
+                job.result = {'name': info['name'], 'version': info['version'], 'imports': info['imports'],
+                              'failed': check['failed'], 'parts': check['parts']}
                 job.set(1.0, phase='done', detail='')
             finally:
                 self.verify_async(force=True)
+
+    def _roll_back(self, job, before):
+        """Put back what an install changed: remove the packages it added, reinstall the versions it
+        replaced (`before`: canonical name → version or None). Returns what could not be undone, or ''."""
+        added = [n for n, v in before.items() if v is None and installed_version(n)]
+        replaced = [f'{n}=={v}' for n, v in before.items() if v and installed_version(n) not in (None, v)]
+        left = []
+        if added and self._pip(job, ['uninstall', '--yes', *added]) != 0:
+            left.append(_pip_error(job.log, 'pip could not remove ' + ', '.join(added)))
+        if replaced and self._pip(job, ['install', '--no-deps', *replaced]) != 0:
+            left.append(_pip_error(job.log, 'pip could not reinstall ' + ', '.join(replaced)))
+        clean_appledouble()
+        importlib.invalidate_caches()
+        return '; '.join(left)
+
+    def unusable(self, requires, imports=()):
+        """[module, error] pairs that stop a plugin needing `requires` and importing `imports`: a user's
+        module that cannot be used stops every plugin that needs it; one that works in part only the
+        plugins importing a part that fails. Modules not installed or not checked yet stop nothing here."""
+        out = []
+        for name in dict.fromkeys(requires):
+            key = canonical(name)
+            rec = self.user.get(key)
+            check = self.checks.get('user:' + key)
+            if not rec or not check or check['version'] != installed_version(rec['pip']):
+                continue
+            if not check['ok']:
+                out.append([rec['pip'], check['error']])
+                continue
+            out += [[part, error] for part, error in check.get('failed', [])
+                    if any(i == part or i.startswith(part + '.') for i in imports)]
+        return out
 
     def start_uninstall(self, name):
         """Remove one of the user's modules (pip uninstall; the packages installed with it stay).

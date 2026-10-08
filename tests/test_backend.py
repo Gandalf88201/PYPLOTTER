@@ -159,22 +159,28 @@ class TestUserModules(unittest.TestCase):
         self.assertEqual(licenses.from_metadata({'license_expression': 'BSD-3-Clause'})['status'], 'osi')
         self.assertEqual(licenses.from_metadata(modules.metadata.distribution('numpy').metadata)['status'], 'osi')
 
-    def _manager(self, tmp, report, installed, users=()):
-        """A ModuleManager whose pip only records its arguments and answers the dry run with `report`."""
+    def _manager(self, tmp, report, installed, users=(), check=None):
+        """A ModuleManager whose pip only records its arguments and answers the dry run with `report`
+        (installing the module installs everything in it); check: what the import check finds."""
         mm = ModuleManager(state_dir=tmp, online=True)
         mm.calls = []
         mm._prepare_pip = lambda job: None
         mm.verify_async = lambda force=False: None
+        mm._run_check = lambda names, deep: check or {'ok': True, 'error': '', 'failed': [], 'parts': 1}
 
         def fake_pip(job, args, on_line=None):
             mm.calls.append(args)
             if '--dry-run' in args:
                 Path(args[args.index('--report') + 1]).write_text(json.dumps({'install': report}), encoding='utf-8')
             elif args[0] == 'install':
-                name, version = args[-1].split('==')
-                installed[modules.canonical(name)] = version
+                for spec in [a for a in args if '==' in a]:
+                    name, version = spec.split('==')
+                    installed[modules.canonical(name)] = version
+                if '--upgrade-strategy' in args:
+                    installed.update({modules.canonical(r['metadata']['name']): r['metadata']['version'] for r in report})
             elif args[0] == 'uninstall':
-                installed.pop(modules.canonical(args[-1]), None)
+                for name in args[args.index('--yes') + 1:]:
+                    installed.pop(modules.canonical(name), None)
             return 0
         mm._pip = fake_pip
         real_version = modules.installed_version
@@ -261,6 +267,67 @@ class TestUserModules(unittest.TestCase):
             self.assertEqual(mm4.calls[-1], ['uninstall', '--yes', 'propkg'])
             self.assertEqual(json.loads((Path(tmp) / 'user-modules.json').read_text(encoding='utf-8'))['modules'], [])
 
+    def test_unusable_install_is_undone(self):
+        """A module that does not import once installed is removed again, with what came with it, and
+        the packages it upgraded go back to their versions."""
+        with tempfile.TemporaryDirectory() as tmp:
+            installed = {'helper': '2.0'}                                   # upgraded to 2.1 by the install
+            broken = {'ok': False, 'error': "ModuleNotFoundError: No module named 'pkg_resources'",
+                      'failed': [['propkg.io', "ModuleNotFoundError: No module named 'pkg_resources'"]], 'parts': 1}
+            mm = self._manager(tmp, self.REPORT, installed, check=broken)
+            job = self._wait(mm.start_inspect('propkg'))
+            done = self._wait(mm.start_user_install(job.id, accept=True))
+            self.assertEqual(done.state, 'error')
+            self.assertIn('installation was undone', done.error)
+            self.assertTrue(done.result['rolled_back'])
+            self.assertEqual(done.result['failed'], broken['failed'])
+            self.assertEqual(installed, {'helper': '2.0'})                   # as before
+            self.assertIn(['uninstall', '--yes', 'propkg'], mm.calls)
+            self.assertIn(['install', '--no-deps', 'helper==2.0'], mm.calls)
+            self.assertEqual(mm.user, {})                                    # not recorded
+            self.assertFalse((Path(tmp) / 'user-modules.json').exists())
+
+            # Working in part is kept, with the parts that fail.
+            part = {'ok': True, 'error': '', 'failed': [['propkg.qt', "ModuleNotFoundError: No module named 'PyQt5'"]],
+                    'parts': 4}
+            mm2 = self._manager(tmp, self.REPORT, installed, check=part)
+            job = self._wait(mm2.start_inspect('propkg'))
+            done = self._wait(mm2.start_user_install(job.id, accept=True))
+            self.assertEqual(done.state, 'done', done.error)
+            self.assertEqual((done.result['failed'], installed['propkg']), (part['failed'], '1.0'))
+            row = mm2.status()['user_modules'][0]
+            self.assertEqual((row['works'], row['import_failed'], row['import_parts']), (True, part['failed'], 4))
+
+            # Analyses that import the failing part are stopped, the others run.
+            self.assertEqual(mm2.unusable(['propkg'], ['propkg', 'propkg.qt.widgets']), [part['failed'][0]])
+            self.assertEqual(mm2.unusable(['propkg'], ['propkg', 'propkg.core']), [])
+            self.assertEqual(mm2.unusable(['scipy'], ['scipy.optimize']), [])
+            mm2.checks['user:propkg'] = {**broken, 'version': '1.0', 'deep': True}
+            self.assertEqual(mm2.unusable(['propkg'], []), [['propkg', broken['error']]])
+
+    def test_integration_plugins(self):
+        from pyplotter import plugins
+        with tempfile.TemporaryDirectory() as tmp:
+            pm = plugins.PluginManager(user_dir=tmp)
+            made = pm.create_integration('uvvispy', 'uvvispy')
+            self.assertEqual(made, {'file': 'uvvispy_tools.py', 'errors': []})
+            p = pm.plugins['uvvispy_tools']
+            self.assertEqual((p['requires'], p['source']), (['uvvispy'], 'user'))
+            self.assertIn('uvvispy', p['imports'])                   # imported inside run(): PyPlotter still starts
+            self.assertEqual(pm.create_integration('uvvispy', 'uvvispy')['file'], 'uvvispy_tools_2.py')
+            self.assertEqual(pm.create_integration('3d.Tools', 'tools3d')['file'], 'm_3d_tools_tools.py')
+            for bad in (('../x', 'x'), ('x', 'not-an-import'), ('', 'x')):
+                with self.subTest(bad=bad), self.assertRaises(plugins.PluginError):
+                    pm.create_integration(*bad)
+            (Path(tmp) / 'uses_parts.py').write_text(
+                'from uvvispy import processing\nimport numpy.linalg as la\nfrom . import x\n', encoding='utf-8')
+            self.assertEqual(plugins.imported_modules(Path(tmp) / 'uses_parts.py'),
+                             ['numpy.linalg', 'uvvispy', 'uvvispy.processing'])
+            listed = pm.describe(blocked=lambda req, imp: [['uvvispy', 'broken']] if 'uvvispy' in req else [])
+            rows = {r['id']: r for r in listed['plugins']}
+            self.assertEqual(rows['uvvispy_tools']['blocked'], [['uvvispy', 'broken']])
+            self.assertEqual(rows['fit_curve']['blocked'], [])
+
     def test_open_source_needs_no_confirmation_and_offline(self):
         with tempfile.TemporaryDirectory() as tmp:
             report = [{'requested': True, 'metadata': {'name': 'propkg', 'version': '3.0', 'license_expression': 'MIT'}}]
@@ -277,6 +344,57 @@ class TestUserModules(unittest.TestCase):
                 {'pip': '--index-url=http://evil.example'}, {'pip': 'fine-name', 'version': '1'}]}), encoding='utf-8')
             mm = ModuleManager(state_dir=tmp, online=False)
             self.assertEqual(list(mm.user), ['fine-name'])
+
+    def test_deep_import_check(self):
+        """A user's module whose top level imports but whose parts do not is not reported as working."""
+        packages = {
+            # like uvvispy: an __init__ with only a docstring, every part needs a module that is missing
+            'ppempty': {'__init__': '"""Docs only."""', 'io': 'import pyplotter_gone', 'plotting': 'import pyplotter_gone'},
+            # the main code works, one optional part needs a module that is not installed
+            'pppart': {'__init__': 'def f():\n    return 1', 'qt': 'import pyplotter_no_qt', 'core': 'X = 1',
+                       'more': 'Y = 2'},
+            # parts that print, tests and private modules (not checked)
+            'ppfine': {'__init__': '', 'a': 'print("PYPLOTTER-RESULT {}")', 'tests': 'raise RuntimeError',
+                       '_private': 'raise RuntimeError'},
+            # Python dies while importing a part
+            'ppcrash': {'__init__': '', 'boom': 'import os\nos._exit(3)'},
+            'ppflat': None,                                   # a single-file module
+        }
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as lib:
+            for name, files in packages.items():
+                if files is None:
+                    (Path(lib) / f'{name}.py').write_text('Z = 3', encoding='utf-8')
+                    continue
+                (Path(lib) / name).mkdir()
+                for mod, code in files.items():
+                    (Path(lib) / name / f'{mod}.py').write_text(code, encoding='utf-8')
+            mm = ModuleManager(state_dir=tmp, online=False)
+            mm.user = {n: {'pip': n, 'imports': [n]} for n in packages}
+            mm.user['ppgone'] = {'pip': 'ppgone', 'imports': ['ppgone']}
+            with mock.patch.dict('os.environ', {'PYTHONPATH': lib}):
+                r = {n: mm.check_import('user:' + n) for n in mm.user}
+            self.assertFalse(r['ppempty']['ok'])
+            self.assertEqual(r['ppempty']['parts'], 2)
+            self.assertEqual([n for n, _ in r['ppempty']['failed']], ['ppempty.io', 'ppempty.plotting'])
+            self.assertIn("No module named 'pyplotter_gone'", r['ppempty']['error'])
+            self.assertTrue(r['pppart']['ok'])
+            self.assertEqual(r['pppart']['parts'], 4)                       # 3 submodules + the top level
+            self.assertEqual([n for n, _ in r['pppart']['failed']], ['pppart.qt'])
+            self.assertEqual((r['ppfine']['ok'], r['ppfine']['failed'], r['ppfine']['parts']), (True, [], 1))
+            self.assertFalse(r['ppcrash']['ok'])
+            self.assertIn('ppcrash.boom', r['ppcrash']['error'])
+            self.assertEqual((r['ppflat']['ok'], r['ppflat']['failed'], r['ppflat']['parts']), (True, [], 1))
+            self.assertFalse(r['ppgone']['ok'])
+            self.assertIn('ModuleNotFoundError', r['ppgone']['error'])
+
+    def test_shallow_checks_of_user_modules_are_redone(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / 'import-check.json').write_text(json.dumps({'python': sys.executable, 'checks': {
+                'user:old': {'version': '1', 'ok': True, 'error': ''},                  # before the deep check
+                'user:new': {'version': '1', 'ok': True, 'error': '', 'failed': [], 'parts': 3, 'deep': True}}}),
+                encoding='utf-8')
+            mm = ModuleManager(state_dir=tmp, online=False)
+            self.assertEqual(sorted(k for k in mm.checks if k.startswith('user:')), ['user:new'])
 
 
 class TestReaders(TempDir):

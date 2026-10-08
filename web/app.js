@@ -160,7 +160,8 @@ const kindNeeds = kind => missingOf(state.meta.kinds[kind]?.requires || []);
 async function refreshStatus() {
   state.status = await api('/api/status');
   const updates = state.status.modules.filter(m => m.update && m.installed).length;
-  const broken = state.status.modules.filter(m => m.installed && m.works === false).length;
+  const broken = [...state.status.modules, ...(state.status.user_modules || [])]
+    .filter(m => m.installed && m.works === false).length;
   $('#updatesBadge').hidden = !(updates || broken);
   $('#updatesBadge').textContent = broken || updates;
   $('#updatesBadge').classList.toggle('danger', !!broken);
@@ -427,8 +428,94 @@ function buildKindGallery() {
       box.append(b);
     });
   });
+  const tools = moduleTools();
+  if (tools.length) box.append(Object.assign(document.createElement('span'), { className: 'kind-sep' }));
+  tools.forEach(({ module: m, plugins }) => {
+    const b = document.createElement('button');
+    b.className = 'kind tool' + (m.import_failed.length ? ' partial' : '');
+    b.dataset.tool = m.key;
+    b.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true">${window.MODULE_ICON}</svg><span></span>`;
+    b.querySelector('span').textContent = m.name;
+    b.title = t('tools.title', { name: m.name, n: plugins.length }) + (m.import_failed.length ? ' — ' + t('tools.partial') : '');
+    b.onclick = e => { e.stopPropagation(); openToolMenu(b, m, plugins); };
+    box.append(b);
+  });
   const active = box.querySelector('.kind.active');
   if (active) box.scrollLeft = Math.max(0, active.offsetLeft - box.clientWidth / 2 + active.offsetWidth / 2);
+}
+
+// ------------------------------------------------------------------ the user's modules as tools
+// A module added from PyPI shows up after the plot types once it imports and analyses use it (its
+// integration: plugins listing it in "requires"); its icon opens the list of those functions.
+const canonName = s => String(s).toLowerCase().replace(/[-_.]+/g, '-');
+const usedBy = m => {
+  const list = window.Analysis && window.Analysis.list();
+  return list ? list.plugins.filter(p => p.requires.some(r => canonName(r) === m.key)) : null;
+};
+function moduleTools() {
+  return (state.status?.user_modules || [])
+    .filter(m => m.installed && m.works !== false)
+    .map(m => ({ module: m, plugins: usedBy(m) || [] }))
+    .filter(x => x.plugins.length);
+}
+
+// The analyses were (re)loaded: icons and the "used by" notes of the modules follow them.
+function analysesChanged() {
+  if (state.meta) buildKindGallery();
+  if ($('#modulesDialog').open) renderUserModules();
+}
+
+function openToolMenu(anchor, m, plugins) {
+  closeToolMenu();
+  const menu = document.createElement('div');
+  menu.className = 'tool-menu';
+  menu.id = 'toolMenu';
+  const head = document.createElement('div');
+  head.className = 'tool-head';
+  head.textContent = `${m.name} ${m.installed}`;
+  menu.append(head);
+  if (m.import_failed.length) {
+    const warn = document.createElement('div');
+    warn.className = 'tool-warn small';
+    warn.textContent = t('tools.partial');
+    menu.append(warn);
+  }
+  plugins.forEach(p => {
+    const b = document.createElement('button');
+    b.className = 'tool-item';
+    const name = document.createElement('b');
+    name.textContent = p.name[state.lang] || p.name.en;
+    const desc = document.createElement('span');
+    desc.className = 'small muted';
+    desc.textContent = p.description[state.lang] || p.description.en;
+    b.append(name, desc);
+    if (p.blocked.length) {
+      b.disabled = true;
+      desc.textContent = t('tools.unavailable', { why: p.blocked.map(x => `${x[0]}: ${x[1]}`).join('; ') });
+    }
+    b.onclick = () => { closeToolMenu(); window.Analysis.select(p.id); };
+    menu.append(b);
+  });
+  const add = document.createElement('button');
+  add.className = 'btn small tool-new';
+  add.textContent = t('tools.new');
+  add.onclick = () => { closeToolMenu(); window.Analysis.newIntegration(m.name); };
+  menu.append(add);
+  document.body.append(menu);
+  const r = anchor.getBoundingClientRect();
+  menu.style.top = `${r.bottom + 4}px`;
+  menu.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - menu.offsetWidth - 8))}px`;
+  setTimeout(() => {
+    document.addEventListener('click', closeToolMenuOutside);
+    document.addEventListener('keydown', closeToolMenuKey);
+  });
+}
+function closeToolMenuOutside(e) { if (!e.target.closest('#toolMenu')) closeToolMenu(); }
+function closeToolMenuKey(e) { if (e.key === 'Escape') closeToolMenu(); }
+function closeToolMenu() {
+  document.removeEventListener('click', closeToolMenuOutside);
+  document.removeEventListener('keydown', closeToolMenuKey);
+  $('#toolMenu')?.remove();
 }
 
 async function setKind(kind) {
@@ -2148,7 +2235,7 @@ function renderModules() {
   const upd = st.modules.filter(m => m.installed && m.update);
   $('#btnUpdateAll').hidden = !upd.length;
   $('#btnUpdateAll').textContent = t('modules.update_all', { n: upd.length });
-  const inst = st.modules.filter(m => m.installed);
+  const inst = [...st.modules, ...(st.user_modules || [])].filter(m => m.installed);    // the user's modules too
   const broken = inst.filter(m => m.works === false);
   const checking = st.checks?.state === 'running' || inst.some(m => m.works === null);
   const line = $('#modulesCheck');
@@ -2274,11 +2361,27 @@ function renderUserModules() {
     meta.textContent = [m.summary, m.imports.length ? t('umod.import', { names: m.imports.join(', ') }) : '',
       m.added ? t('umod.added', { date: m.added }) : '', m.accepted ? t('umod.accepted') : ''].filter(Boolean).join(' · ');
     info.append(name, licBadge(m.license, m.status), meta);
-    if (m.installed && m.works === false && m.import_error) {
-      const err = document.createElement('div');
-      err.className = 'import-error';
-      err.textContent = m.import_error;
-      info.append(err);
+    const failed = m.import_failed || [];
+    if (m.installed && (failed.length || (m.works === false && m.import_error))) info.append(importFailures(m));
+    const users = m.installed && m.works !== false ? usedBy(m) : null;     // null: not known yet, or no use
+    if (users === null && m.installed && m.works !== false && window.Analysis) window.Analysis.load().catch(() => {});
+    if (users && users.length) {
+      const used = document.createElement('div');
+      used.className = 'meta';
+      used.textContent = t('umod.used_by', { names: users.map(p => p.name[state.lang] || p.name.en).join(', ') });
+      info.append(used);
+    } else if (users) {                          // works, but nothing in PyPlotter uses it: offer to start
+      const unused = document.createElement('div');
+      unused.className = 'umod-unused small';
+      unused.textContent = t('umod.unused') + ' ';
+      const make = document.createElement('button');
+      make.className = 'btn small primary';
+      make.textContent = t('umod.make_integration');
+      make.title = t('umod.make_integration_hint');
+      make.disabled = !!state.umodBusy;
+      make.onclick = () => { $('#modulesDialog').close(); window.Analysis.newIntegration(m.name); };
+      unused.append(make);
+      info.append(unused);
     }
     if (m.packages.length > 1) {
       const det = document.createElement('details');
@@ -2306,8 +2409,14 @@ function renderUserModules() {
     const status = document.createElement('span');
     status.className = 'status';
     if (!m.installed) { status.classList.add('no'); status.textContent = t('umod.missing'); }
-    else if (m.works === false) { status.classList.add('bad'); status.textContent = t('modules.broken', { v: m.installed }); }
-    else { status.classList.add('ok'); status.textContent = `${t('modules.installed', { v: m.installed })} · ${t(m.works ? 'modules.works' : 'modules.verifying')}`; }
+    else if (m.works === false) { status.classList.add('bad'); status.textContent = t('umod.unusable', { v: m.installed }); }
+    else if (failed.length) { status.classList.add('upd'); status.textContent = t('umod.partial', { v: m.installed }); }
+    else {
+      status.classList.add('ok');
+      const works = m.works === null ? t('modules.verifying')
+        : (m.import_parts > 1 ? t('umod.works', { n: m.import_parts }) : t('modules.works'));
+      status.textContent = `${t('modules.installed', { v: m.installed })} · ${works}`;
+    }
     if (m.restart) status.textContent += ` · ${t('modules.restart')}`;
     const actions = document.createElement('span');
     const button = (label, cls, fn) => {
@@ -2327,6 +2436,26 @@ function renderUserModules() {
     row.append(info, status, actions);
     list.append(row);
   });
+}
+
+// The parts of a user's module that do not import, one line per cause (uvvispy: six parts, one missing module).
+function importFailures(m) {
+  const box = document.createElement('div');
+  box.className = 'import-error' + (m.works === false ? '' : ' warn');
+  const failed = m.import_failed || [];
+  if (!failed.length) { box.textContent = m.import_error; return box; }
+  const head = document.createElement('div');
+  head.className = 'head';
+  head.textContent = t(failed.length === 1 ? 'umod.part_failed' : 'umod.parts_failed', { n: failed.length, total: m.import_parts });
+  box.append(head);
+  const byCause = new Map();
+  failed.forEach(([part, error]) => byCause.set(error, [...(byCause.get(error) || []), part]));
+  byCause.forEach((parts, error) => {
+    const line = document.createElement('div');
+    line.textContent = `${error} — ${parts.join(', ')}`;
+    box.append(line);
+  });
+  return box;
 }
 
 function umodBusy(on) {
@@ -2431,8 +2560,16 @@ async function umodInstall(inspection, accept, name) {
   try {
     let job = await api('/api/modules/user/install', { inspection, accept });
     job = await followJob(job, j => { setBar(bar, j.progress); phase.textContent = `${j.title}: ${phaseText(j)}`; });
-    if (job.state === 'done') { phase.textContent = ''; $('#umodName').value = ''; toast(t('umod.installed', { name })); }
-    else phase.textContent = job.state === 'error' ? phaseText(job) : t('phase.cancelled');
+    const r = job.result || {};
+    if (job.state === 'done') {
+      phase.textContent = '';
+      $('#umodName').value = '';
+      toast(t((r.failed || []).length ? 'umod.installed_partial' : 'umod.installed', { name }));
+    } else if (r.rolled_back) {            // installed, but it did not import: removed again
+      phase.textContent = t(r.rollback_error ? 'umod.rollback_partial' : 'umod.rolled_back', { name: r.name, v: r.version });
+      phase.append(importFailures({ works: false, import_failed: r.failed, import_parts: r.parts, import_error: r.error }));
+      if (r.rollback_error) phase.append(Object.assign(document.createElement('div'), { className: 'import-error', textContent: r.rollback_error }));
+    } else phase.textContent = job.state === 'error' ? phaseText(job) : t('phase.cancelled');
   } catch (e) {
     phase.textContent = e.message;
   } finally {
@@ -2637,6 +2774,8 @@ async function start() {
   bindApp();
   if (window.Analysis) window.Analysis.show();
   refreshStatus().then(pollRefresh).catch(() => {});   // badge shows updates and broken modules
+  // The icons of the user's modules need the analyses that use them, also before any data is open.
+  if ((state.status.user_modules || []).length && window.Analysis) window.Analysis.load().catch(() => {});
 }
 
 async function boot() {

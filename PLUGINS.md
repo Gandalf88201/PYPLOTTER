@@ -142,6 +142,24 @@ To ship a plugin that others can use without that step, add the package to `pypl
 with its licence (open-source only, see THIRD_PARTY_NOTICES.md) and citation. Put the references of
 the methods you use in `references`.
 
+### Integrations: the icon of a module added from PyPI
+
+A package added from *Modules › Your modules* does nothing by itself: PyPlotter reaches its features
+through plugins that list its PyPI name in `requires`, which together are its **integration**. As soon
+as the package imports and at least one plugin uses it, an icon with its name appears at the end of
+the bar of plot types; the icon opens the list of those plugins, and choosing one shows it in the
+*Analysis* panel, ready to run on the open data.
+
+- *Create integration* (shown under a module that no plugin uses yet) or *＋ New function* (in its
+  icon) writes `<package>_tools.py` in your plugins folder: a working analysis that imports the
+  package and reports its version, to be edited. Copy it, with a new `id`, for each function.
+- Import the package **inside `run()`**, not at the top of the file: PyPlotter then starts, and lists
+  the analysis, also where the package is missing.
+- A package that **works in part** (some of its submodules do not import, usually optional parts):
+  PyPlotter reads which modules each plugin imports (`import a.b`, `from a import b`) and disables
+  only the analyses that import a failing part, with the reason. A package that cannot be used
+  disables all of them, and its icon is not shown.
+
 ### Security
 
 Plugins are ordinary Python code that runs inside the local PyPlotter service with your user
@@ -174,6 +192,19 @@ alla versione aggiornata. Elenca in `requires` i moduli necessari (solo
 open source, con licenza e citazione nel registro); un pacchetto aggiunto da *Moduli › I tuoi moduli*
 si elenca col suo nome PyPI. Lancia `ValueError('messaggio')` per errori che
 l'utente deve correggere.
+
+**Integrazioni: l'icona di un modulo aggiunto da PyPI.** Un pacchetto aggiunto da *Moduli › I tuoi
+moduli* da solo non fa nulla: PyPlotter usa le sue funzioni tramite i plugin che ne elencano il nome
+PyPI in `requires`, che insieme sono la sua **integrazione**. Appena il pacchetto si importa e almeno
+un plugin lo usa, in fondo alla barra dei tipi di grafico compare un'icona col suo nome; l'icona apre
+l'elenco di quei plugin e sceglierne uno lo mostra nel riquadro *Analisi*, pronto sui dati aperti.
+*Crea integrazione* (sotto un modulo che nessun plugin usa ancora) o *＋ Nuova funzione* (nell'icona)
+scrive `<pacchetto>_tools.py` nella cartella plugin: un'analisi funzionante che importa il pacchetto e
+ne mostra la versione, da modificare; copiala con un nuovo `id` per ogni funzione. Importa il pacchetto
+**dentro `run()`**, non in cima al file, così PyPlotter parte anche dove manca. Se il pacchetto
+**funziona in parte**, PyPlotter legge quali moduli importa ogni plugin e disattiva solo le analisi che
+importano una parte che non si importa, spiegando perché; se non è utilizzabile le disattiva tutte e
+l'icona non compare.
 
 **Ricette.** Una ricetta (categoria `'recipe'`, prima voce del menu *Ricette*) esegue più analisi in
 sequenza e dà la risposta in parole semplici. È un plugin normale con `ctx.run('id', df, **parametri)`,
