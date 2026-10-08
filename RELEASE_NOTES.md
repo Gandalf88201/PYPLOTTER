@@ -1,3 +1,101 @@
+# PyPlotter 0.1.4
+
+**Modules from PyPI that are checked for real, with an icon for their functions — and IR peak assignment.**
+*Italiano più sotto.*
+
+## What's new
+
+### IR peak assignment
+- A new analysis, **IR peak assignment** (*Analysis › Signal*), for mid-IR spectra in absorbance or
+  transmittance (recognised from the column name and the shape), against cm⁻¹, µm or nm.
+- It finds the peaks above the baseline and lists, for each, the **candidate groups** from a table of
+  **111 characteristic bands**:
+  - organic groups (O–H, N–H, C–H, C=O of esters, acids, ketones, aldehydes, amides…, C–O, aromatic and
+    alkene bands, nitro, nitrile and more);
+  - inorganic anions and minerals for materials and conservation science: carbonates, sulfates, nitrates,
+    phosphates, silicates and quartz, clays, metal oxalates, carboxylates and metal soaps, Prussian blue;
+  - water, and atmospheric CO₂ flagged as an artefact.
+- Candidates are ranked by how narrow the range is, how well intensity and width match, and by the
+  **companion bands** a group needs: an ester C–O only with an ester C=O, an aldehyde only with its
+  C–H doublet, an aryl ether only with an aromatic ring, carbonate bends only with a strong carbonate
+  band, organic groups only with C–H bands.
+- Each peak gets a **confidence** (high, medium, low). The figure shows “1738 C=O” above the peaks,
+  or “860 ?” when uncertain. A table lists the **groups that explain the most peaks**, and notes say
+  what missing bands rule out (no strong band at 1850–1650 cm⁻¹: no C=O).
+- Groups with S, P, Si or halogens are included on request: their broad ranges fit almost any peak.
+- They are candidates, not proofs. The table (`BANDS` in `ir_assign.py`, editable with *Customise*)
+  holds standard values compiled from the references listed in REFERENCES.md.
+- *Examples › IR spectrum*: a synthetic spectrum to try it on.
+
+### Your modules from PyPI
+- **Deeper import check.** Each module you added is imported with its submodules. A package whose
+  `import` works but whose working parts fail is shown as **cannot be used** (red), e.g. uvvispy 0.1.1
+  with setuptools 84 (`No module named 'pkg_resources'`). When only a few parts fail, usually optional
+  ones, it **works in part** (amber). The failing parts are listed, grouped by cause.
+- **An install that cannot be used is undone.** Right after installing, the module is checked. If it
+  cannot be used, the packages it added are removed and the ones it upgraded go back to their
+  versions; the environment stays as it was and the reason is shown.
+- **Integrations.** A module does something in PyPlotter through the plugins that list it in
+  `requires`.
+  - A module that no plugin uses says so, with **Create integration**: a first, working analysis that
+    uses it, opened in the editor.
+  - A module that imports and is used gets **its own icon at the end of the bar of plot types**. The
+    icon lists its functions; choosing one opens it in *Analysis*, ready for the open data.
+  - Analyses that import a part of a module that fails are disabled, with the reason.
+
+## Changes in behaviour
+- Modules you added that showed “import OK” may now show *cannot be used* or *works in part*: they are
+  checked again, more strictly, at the next start.
+- The red badge on *Modules* and the line at the top of the Modules window count your modules too.
+- Installing a module that cannot be used now leaves nothing behind.
+
+## Updating
+Download the source of this release and replace the old folder. Your settings and plugins in
+`~/.pyplotter/` are kept. Restart PyPlotter after updating.
+
+---
+
+## Italiano
+
+**Moduli da PyPI controllati davvero, con un’icona per le loro funzioni — e l’assegnazione dei picchi IR.**
+
+### Novità
+- **Assegnazione dei picchi IR** (*Analisi › Segnale*), per spettri IR medi in assorbanza o trasmittanza,
+  in cm⁻¹, µm o nm:
+  - trova i picchi ed elenca per ognuno i **gruppi candidati** da una tabella di **111 bande
+    caratteristiche**: gruppi organici, anioni inorganici e minerali (carbonati, solfati, nitrati,
+    fosfati, silicati e quarzo, argille, ossalati, saponi metallici, blu di Prussia), acqua e CO₂
+    atmosferica come artefatto;
+  - i candidati sono ordinati per intervallo, intensità, larghezza e **bande compagne** (il C–O di un
+    estere solo con il suo C=O, un’aldeide solo con il doppietto C–H, i gruppi organici solo con bande C–H);
+  - ogni picco ha un’**affidabilità**; il grafico mostra «1738 C=O» sopra i picchi, o «860 ?» se
+    incerto; una tabella elenca i **gruppi che spiegano più picchi**;
+  - i gruppi con S, P, Si o alogeni si includono su richiesta;
+  - sono candidati, non prove: la tabella (`BANDS` in `ir_assign.py`, modificabile con *Personalizza*)
+    contiene valori standard dai riferimenti di REFERENCES.md;
+  - *Esempi › Spettro IR* per provarla.
+- **I tuoi moduli da PyPI:**
+  - **controllo più severo**: ogni modulo viene importato con i suoi sottomoduli; se le parti che fanno
+    il lavoro non si importano è **non utilizzabile** (rosso), se ne falliscono poche **funziona in
+    parte** (arancione); le parti che falliscono sono elencate per causa;
+  - **un’installazione non utilizzabile viene annullata**: i pacchetti aggiunti vengono tolti e quelli
+    aggiornati tornano alla versione precedente;
+  - **integrazioni**: un modulo che nessun plugin usa lo dice, con **Crea integrazione**; un modulo
+    usato ha **la sua icona in fondo alla barra dei tipi di grafico**, con l’elenco delle sue funzioni;
+    le analisi che usano una parte rotta sono disattivate.
+
+### Cambiamenti di comportamento
+- Moduli che risultavano «import OK» possono ora risultare *non utilizzabili* o *funziona in parte*.
+- Il contatore rosso su *Moduli* conta anche i tuoi moduli.
+
+### Aggiornare
+Sostituisci la cartella con quella di questa versione e riavvia PyPlotter. Impostazioni e plugin in
+`~/.pyplotter/` restano.
+
+Licenza MIT · © 2026 Tommaso Francese
+
+---
+
 # PyPlotter 0.1.3
 
 **Zoom, move and rewrite on the figure itself — and peak labels that never overlap.**
