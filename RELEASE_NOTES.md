@@ -14,7 +14,8 @@
   `~/.pyplotter` to `~/.piplotter` (the old folder is left alone); plugins that still say
   `from pyplotter import baselines` keep working; saved style templates and module lists of the old name
   are still read.
-- The GitHub repository and the folder of the project keep their names for now.
+- The GitHub repository is now `Gandalf88201/pi-plotter` (GitHub names cannot contain π); the old address
+  redirects to it. The folder of the project on disk keeps its name.
 
 ### Signature
 - **Dr. T. Francese** appears under the name in the top bar (as in MONET), in the *About* window, on the
