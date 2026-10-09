@@ -40,7 +40,7 @@ PLUGIN = {
                      {'value': 'lorentzian', 'label': {'en': 'Lorentzian', 'it': 'lorentziana'}}]},
         *baselines.params(extra=[('linear', {'en': 'straight line fitted with the peaks', 'it': 'retta adattata con i picchi'}),
                                  ('constant', {'en': 'constant fitted with the peaks', 'it': 'costante adattata con i picchi'})],
-                          default='arpls'),
+                          default='poly'),
         {'id': 'prominence', 'type': 'float', 'optional': True, 'min': 0,
          'label': {'en': 'Minimum prominence (empty = 5% of range)', 'it': 'Prominenza minima (vuoto = 5% dell’intervallo)'}},
         {'id': 'max_peaks', 'type': 'int', 'default': 20, 'min': 1, 'max': 40,

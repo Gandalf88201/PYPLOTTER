@@ -1,3 +1,35 @@
+# π-plotter 0.2.1
+
+**A baseline that stays flat: straight line under the signal, dips handled, clicked points kept where clicked.**
+*Italiano più sotto.*
+
+## What's new
+- **New default baseline: a straight line under the signal** (*Baseline*, *Peak finding*, *Peak fit*). Points higher
+  than the line by more than three times the noise — the peaks — do not pull it up (asymmetric truncated quadratic
+  cost, Mazet et al. 2005), so where the signal has no peaks the corrected signal is flat at zero. **Shape** 0 gives
+  a flat level, 1 a straight line, 2–6 a gently curved polynomial. arPLS, AsLS, SNIP and rubber band stay available
+  for curved backgrounds.
+- **Peaks pointing down** (transmittance, dips): every automatic method now puts the baseline **above** them, along
+  the top of the spectrum. Before, it was drawn under the signal and sank into the bands (the example in the manual
+  showed it). *The peaks point* is recognised from the signal, or chosen (up / down). *Peak finding* with *Find
+  minima* uses it too.
+- **Clicked anchor points keep their y.** Before, a click kept only x and the height was read from the signal, so a
+  point clicked next to a spike (or before the first point) jumped to the spike. Now every click writes `x y` and
+  the point stays where it was clicked; a point written with x alone still takes the height of the signal.
+- The results say which way the peaks point and warn when more than 5 % of the points lie on the wrong side of the
+  baseline. SNIP's default window is wider (1/6 of the range), so it no longer cuts broad peaks.
+- Manual updated (baseline section, pictures).
+
+## Italiano
+- **Nuova linea di base predefinita: una retta sotto il segnale.** I picchi non la sollevano (Mazet et al. 2005): dove
+  non ci sono picchi il segnale corretto è piatto a zero. **Forma** 0 = livello piatto, 1 = retta, 2–6 = polinomio.
+- **Picchi in giù** (trasmittanza): la linea di base va sopra gli avvallamenti, lungo il bordo superiore dello spettro;
+  il verso dei picchi si riconosce dal segnale o si sceglie.
+- **I punti cliccati tengono la loro y**: il punto resta dove l’hai cliccato (prima veniva spostato sull’altezza del
+  segnale, per esempio su un picco vicino).
+
+---
+
 # π-plotter 0.2.0
 
 **A new name, a signature, and a built-in user manual with pictures.**

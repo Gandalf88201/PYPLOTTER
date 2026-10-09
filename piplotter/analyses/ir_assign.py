@@ -280,7 +280,8 @@ BANDS = [
 _FIELDS = ('hi', 'lo', 'intensity', 'shape', 'label', 'vibration', 'family', 'note', 'needs')
 
 _BASELINE = [q for q in baselines.params(extra=[('none', {'en': 'none (y = 0)', 'it': 'nessuna (y = 0)'})], default='arpls')
-             if q.get('show_if') != {'baseline': ['points']}]          # anchor points would be in the figure's units
+             if q.get('show_if') != {'baseline': ['points']} and q['id'] != 'bl_peaks']   # anchor points would be in the
+# figure's units; the spectrum is turned into absorbance first, so its peaks always point up
 _BASELINE[0] = {**_BASELINE[0], 'choices': [c for c in _BASELINE[0]['choices'] if c['value'] != 'points']}
 
 PLUGIN = {
@@ -501,7 +502,7 @@ def run(df, p, ctx):
         a = y.copy()
     order = np.argsort(nu, kind='stable')
     nu_s, a_s, x_s, y_s = nu[order], a[order], x[order], y[order]
-    b = ctx.baseline(nu_s, a_s, p)
+    b = ctx.baseline(nu_s, a_s, {**p, 'bl_peaks': 'up'})
     base = b.values if b is not None else np.zeros_like(a_s)
     work = pd.DataFrame({'nu': nu_s, 'A': a_s - base})
     found = ctx.run('peaks', work, x='nu', y='A', baseline='none', prominence=p['prominence'], distance=1,

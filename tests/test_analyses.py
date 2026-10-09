@@ -251,6 +251,55 @@ class TestBuiltins(unittest.TestCase):
         with self.assertRaises(ValueError):
             baselines.estimate(x, y, {'baseline': 'points', 'bl_points': []})
 
+    def test_straight_baseline_under_peaks(self):
+        """The default baseline is a straight line under the peaks: flat where the signal is flat."""
+        import numpy as np
+        from piplotter import baselines, samples
+        x = np.linspace(0, 100, 2001)
+        line = 2 + 0.03 * x
+        y = line + 3 * np.exp(-(x - 30) ** 2 / 8) + 2 * np.exp(-(x - 60) ** 2 / 50) + np.random.default_rng(4).normal(0, 0.01, x.size)
+        b = baselines.estimate(x, y, {'baseline': 'poly'})
+        self.assertLess(np.max(np.abs(b.values - line)), 0.02)
+        self.assertFalse(b.down)
+        flat = baselines.estimate(x, y - 0.03 * x, {'baseline': 'poly', 'bl_degree': 0})
+        self.assertLess(np.ptp(flat.values), 1e-9)                               # degree 0: a constant
+        self.assertAlmostEqual(flat.values[0], 2, delta=0.02)
+        df = samples.make('spectra')
+        for col in ('Sample A', 'Sample B', 'Sample C'):                         # true baseline: 0
+            b = baselines.estimate(df.iloc[:, 0], df[col], {'baseline': 'poly'})
+            self.assertLess(np.max(np.abs(b.values)), 0.01, col)
+
+    def test_baseline_of_dips_lies_above_them(self):
+        """Transmittance (peaks pointing down): every automatic method puts the baseline on top, near 100·10^-0.02."""
+        import numpy as np
+        from piplotter import baselines, samples
+        df = samples.make('ir')
+        x, y = df.iloc[:, 0].to_numpy(), df.iloc[:, 1].to_numpy()
+        self.assertTrue(baselines.peaks_point_down(y))
+        self.assertFalse(baselines.peaks_point_down(-y))
+        top = 100 * 10 ** -0.02
+        for method, tol in (('poly', 3.5), ('arpls', 5), ('rubberband', 4), ('snip', 5.5)):
+            with self.subTest(method=method):
+                b = baselines.estimate(x, y, {'baseline': method})
+                self.assertTrue(b.down)
+                self.assertLess(np.max(np.abs(b.values - top)), tol)
+                self.assertLess(b.below, 0.02)                                   # hardly any point above it
+        up = baselines.estimate(x, y, {'baseline': 'poly', 'bl_peaks': 'up'})    # forced the other way: under the dips
+        self.assertLess(up.values.min(), 60)
+
+    def test_clicked_points_keep_their_height(self):
+        """A clicked point (x and y) stays where it was clicked, even where the signal has a spike."""
+        import numpy as np
+        from piplotter import baselines
+        x = np.linspace(60, 6000, 3000)
+        y = 0.03 + 0.6 * np.exp(-(x - 60) / 30) + 0.2 * np.exp(-(x - 600) ** 2 / 800)
+        b = baselines.estimate(x, y, {'baseline': 'points', 'bl_points': [(-1.0, 0.03), (6010.0, 0.03)]})
+        np.testing.assert_allclose(b.values, 0.03)
+        np.testing.assert_allclose(b.anchors, [[-1, 0.03], [6010, 0.03]])
+        old = baselines.estimate(x, y, {'baseline': 'points', 'bl_anchor': 'signal',          # a setting of older
+                                        'bl_points': [(-1.0, 0.03), (6010.0, 0.03)]})            # versions: ignored
+        np.testing.assert_allclose(old.values, 0.03)
+
     def test_anchor_points_text(self):
         self.assertEqual(plugins.parse_points('100\n200 0.5; 300,5\n\n -4e-3  7'),
                          [(100.0, None), (200.0, 0.5), (300.5, None), (-0.004, 7.0)])

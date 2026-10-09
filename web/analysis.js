@@ -265,8 +265,8 @@ window.Analysis = (() => {
     return f;
   }
 
-  // Points typed one per line ("x" or "x y"), or clicked on the figure. With the height read from the
-  // signal (bl_anchor = signal) a click writes only x; otherwise x and the clicked y.
+  // Points typed one per line ("x y", or "x" alone for the height of the signal there), or clicked on the
+  // figure: a click always writes its x and its y, so the point stays exactly where it was clicked.
   function pointsField(value) {
     const wrap = document.createElement('div');
     wrap.className = 'points-field';
@@ -291,13 +291,12 @@ window.Analysis = (() => {
     clear.textContent = t('an.figpick_clear');
     const lines = () => area.value.split(/\n/).filter(l => l.trim());
     const changed = () => { area.dispatchEvent(new Event('change', { bubbles: true })); drawPickMarks(); };
-    const given = () => { const sel = $('#anMain [data-param="bl_anchor"] select'); return sel && sel.value === 'given'; };
     pick.onclick = () => {
       if (Pick.session && Pick.session.owner === area) { stopPick(); return; }
       const ok = startPick({
         owner: area,
-        onPoint: ({ x, y }) => { area.value = [...lines(), given() ? `${x} ${y}` : x].join('\n'); changed(); },
-        marks: () => parsePoints(area.value).map(([x, y]) => ({ x, y: given() ? y : null })),
+        onPoint: ({ x, y }) => { area.value = [...lines(), `${x} ${y}`].join('\n'); changed(); },
+        marks: () => parsePoints(area.value).map(([x, y]) => ({ x, y: y ?? null })),
         onStop: () => { pick.textContent = t('an.figpick'); pick.classList.add('primary'); },
       });
       if (ok) { pick.textContent = t('an.figpick_stop'); pick.classList.remove('primary'); }

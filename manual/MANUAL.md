@@ -229,16 +229,18 @@ For any signal with peaks (UV-Vis, IR, Raman, XRD, chromatograms…) work in thi
 
 #### Step 1 — Baseline
 
-Choose **Baseline**. Either click anchor points on the figure, or let the program estimate the baseline.
+Choose **Baseline**. By default the program draws a **straight line under the signal**; you can also click the anchor points yourself, or choose a method that follows a curved background.
 
-![The Baseline form](img/baseline_form.png "The Baseline form: automatic (arPLS) here; the other choices are anchor points, asymmetric least squares, SNIP and rubber band.")
+![The Baseline form](img/baseline_form.png "The Baseline form with the default: a straight line under the signal (Shape 1), and the direction of the peaks recognised from the signal.")
 
-* **Anchor points (click on the figure)**: press **Pick on the figure**, click on the figure where the signal lies on its baseline, add as many points as needed (**Remove last**, **Clear**), press **Esc** or **Done** when finished. Choose how the points are joined (straight lines or a smooth curve) and whether the height is read from the signal or as clicked.
-* **Automatic**: *arPLS*, *asymmetric least squares*, *SNIP* or *rubber band*. Change **Stiffness** (lower follows the signal more) or **Asymmetry** until the dashed line runs under the peaks.
+* **Automatic: straight line under the signal (or polynomial)** — the default. The line is fitted to the points that lie on the baseline; points higher than the line by more than three times the noise (the peaks) do not pull it up (Mazet et al., 2005). **Shape** sets how it may bend: **0** a flat, constant level; **1** a straight line (the default); **2–6** a gently curved polynomial for backgrounds that bend. Where the signal has no peaks, the corrected signal is flat at zero.
+* **Anchor points (click on the figure)**: press **Pick on the figure** and click where the signal lies on its baseline, between and around the peaks; press **Esc** or **Done** when finished (**Remove last** and **Clear** correct mistakes). **Each click keeps its x and its y**, so the point stays exactly where you clicked (the text box shows `x y`, one point per line). A point written with **x alone** takes the height of the signal there. Choose whether the points are joined by straight lines or by a smooth curve.
+* **Automatic methods that follow curved backgrounds**: *arPLS*, *asymmetric least squares*, *SNIP* or *rubber band*. Change **Stiffness** (lower follows the signal more) or **Asymmetry** if the line climbs into broad peaks.
+* **The peaks point**: up (absorbance, counts, intensity) or down (transmittance, dips). With **recognise from the signal** the program decides from the shape of the data: for a transmittance spectrum like the example the baseline is drawn **above** the dips, along the top of the spectrum.
 
-Press **Run analysis** and then **Show on a copy of the figure**: you see the data, the baseline and the corrected signal. The program warns when the baseline is too high.
+Press **Run analysis** and then **Show on a copy of the figure**: you see the data, the baseline and the corrected signal (signal − baseline). The results say which way the peaks point and how many points lie on the wrong side of the baseline; above 5 % the program warns that the line cuts into the signal there.
 
-![A baseline drawn on an IR spectrum](img/baseline_figure.png "Data, baseline (dashed) and the signal with the baseline subtracted.")
+![A baseline drawn on an IR spectrum](img/baseline_figure.png "IR transmittance: the straight baseline (dashed) runs along the top of the spectrum, above the dips; the corrected signal (below) is flat at zero between the bands.")
 
 *Peak finding*, *Peak fit* and *Integral* then offer the same baseline already selected, so heights, widths and areas are measured **above it**.
 
@@ -409,6 +411,7 @@ The **Modules** button lists every module π-plotter can use, with its licence a
 | *“This page belongs to another π-plotter session or version”* | Press **Reload** in the red bar. |
 | A file opens with one column or strange numbers | Open **Import options** and choose the separator and decimal mark. |
 | The figure shows columns I did not want | Untick them in **Y axis** (and check that X is not ticked). |
+| The baseline cuts into the signal or follows the peaks | Use the default *straight line under the signal* (Shape 0 or 1), check **The peaks point** (up or down), or click anchor points where the signal is on its baseline. |
 | A fit does not converge or gives silly values | Give **Starting values** and **Limits**, restrict **Fit from / up to**, or try a simpler model. |
 | Peaks are missed or noise is marked as peaks | Change **Minimum prominence**; subtract a baseline first. |
 | A module shows red in *Modules* | Press **Reinstall**; the reason is shown under the name. |
@@ -435,4 +438,5 @@ The tool starts its own copy of π-plotter (with a temporary state folder, so yo
 
 | Version | Changes to the manual |
 |---|---|
+| 0.2.1 | Baseline: the new default (straight line under the signal), peaks pointing down (transmittance), clicked anchor points keep their y. |
 | 0.2.0 | First edition: starting, data, plotting, figure style, zoom and 3D, analyses (fitting, kinetics, baseline and peaks, IR assignment, simulations, statistics), export, plugins and modules. |

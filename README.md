@@ -122,7 +122,10 @@ printed in the terminal window. Options:
   first 100 columns; an automatic legend is left out when it does not fit in the axes.
 - **Baseline first, then the analysis** (spectra, chromatograms, any signal with peaks): the *Baseline*
   analysis takes anchor points you **click on the figure** (or type), joined by straight lines or a smooth
-  curve, or an automatic method — arPLS, asymmetric least squares, SNIP or rubber band. It draws the baseline
+  curve (each click keeps its x and y), or an automatic method — by default a straight line (or flat level, or low
+  polynomial) under the signal that the peaks do not pull up (Mazet et al. 2005), or arPLS, asymmetric least squares,
+  SNIP or rubber band for curved backgrounds; spectra whose peaks point down (transmittance) get the baseline above
+  the dips, recognised automatically. It draws the baseline
   and the corrected signal and warns when the baseline is too high. *Peak finding*, *Peak fit* and *Integral*
   then offer the same baseline already selected: heights, widths and areas are measured above it, each
   peak's area runs between the minima that separate it from its neighbours, and the joint peak fit keeps
@@ -273,7 +276,9 @@ con un solo pulsante e una barra di avanzamento. Tieni aperta la finestra del te
   lo dice. La tabella dati mostra le prime 100 colonne; la legenda automatica si omette se non sta negli assi.
 - **Prima la linea di base, poi l’analisi** (spettri, cromatogrammi, ogni segnale con picchi): l’analisi
   *Linea di base* usa punti di ancoraggio che **clicchi sulla figura** (o scrivi), uniti da segmenti o da
-  una curva liscia, oppure un metodo automatico — arPLS, minimi quadrati asimmetrici, SNIP o elastico.
+  una curva liscia (ogni clic tiene x e y), oppure un metodo automatico — di base una retta (o un livello piatto, o un
+  polinomio basso) sotto il segnale che i picchi non sollevano (Mazet et al. 2005), oppure arPLS, minimi quadrati asimmetrici,
+  SNIP o elastico per fondi curvi; negli spettri con picchi in giù (trasmittanza) la linea va sopra gli avvallamenti.
   Disegna la linea e il segnale corretto e avvisa se la linea è troppo alta. *Ricerca dei picchi*, *Fit dei
   picchi* e *Integrale* propongono poi la stessa linea già selezionata: altezze, larghezze e aree sono
   misurate sopra di essa, l’area di ogni picco va dai minimi che lo separano dai vicini, e il fit congiunto

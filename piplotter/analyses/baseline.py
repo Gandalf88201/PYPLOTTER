@@ -22,7 +22,7 @@ PLUGIN = {
     'params': [
         {'id': 'x', 'type': 'column', 'optional': True, 'default': 'x', 'label': {'en': 'X (optional)', 'it': 'X (facoltativa)'}},
         {'id': 'y', 'type': 'column', 'default': 'y', 'label': {'en': 'Signal', 'it': 'Segnale'}},
-        *baselines.params(default='points'),
+        *baselines.params(default='poly'),
     ],
     'references': ['Virtanen, P. et al. SciPy 1.0. Nature Methods 17, 261–272 (2020). doi:10.1038/s41592-019-0686-2'],
 }
@@ -36,13 +36,16 @@ def run(df, p, ctx):
     corrected = y - b.values
     r = ctx.result()
     r.value(ctx.tr('baseline', 'linea di base'), b.label)
-    r.value(ctx.tr('points clearly under the baseline', 'punti chiaramente sotto la linea di base'),
+    r.value(ctx.tr('peaks point', 'picchi rivolti'), ctx.tr('down (baseline above the signal)', 'in giù (linea sopra il segnale)')
+            if b.down else ctx.tr('up (baseline under the signal)', 'in su (linea sotto il segnale)'))
+    side = ctx.tr('above', 'sopra') if b.down else ctx.tr('under', 'sotto')
+    r.value(ctx.tr(f'points clearly {side} the baseline', f'punti chiaramente {side} la linea di base'),
             100 * b.below, unit='%', key='below')
     if b.below > 0.05:
-        r.text(ctx.tr('More than 5 % of the points are under the baseline: it is probably too high there '
-                      '(move or add anchor points, or lower the stiffness).',
-                      'Oltre il 5 % dei punti è sotto la linea di base: lì è probabilmente troppo alta '
-                      '(sposta o aggiungi punti di ancoraggio, o riduci la rigidità).'))
+        r.text(ctx.tr(f'More than 5 % of the points are {side} the baseline: there it cuts into the signal '
+                      '(move or add anchor points, choose a flatter shape, or check which way the peaks point).',
+                      f'Oltre il 5 % dei punti è {side} la linea di base: lì taglia il segnale '
+                      '(sposta o aggiungi punti di ancoraggio, scegli una forma più piatta, o controlla il verso dei picchi).'))
     r.text(ctx.tr('Next: Peak finding, Peak fit or Integral use this baseline (it is already selected there).',
                   'Poi: Ricerca dei picchi, Fit dei picchi o Integrale usano questa linea di base (vi è già selezionata).'))
     r.cite(*b.refs)

@@ -21,7 +21,7 @@ PLUGIN = {
     'params': [
         {'id': 'x', 'type': 'column', 'optional': True, 'default': 'x', 'label': {'en': 'X (optional)', 'it': 'X (facoltativa)'}},
         {'id': 'y', 'type': 'column', 'default': 'y', 'label': {'en': 'Signal', 'it': 'Segnale'}},
-        *baselines.params(extra=[('none', {'en': 'none (y = 0)', 'it': 'nessuna (y = 0)'})], default='arpls'),
+        *baselines.params(extra=[('none', {'en': 'none (y = 0)', 'it': 'nessuna (y = 0)'})], default='poly'),
         {'id': 'prominence', 'type': 'float', 'optional': True, 'min': 0,
          'label': {'en': 'Minimum prominence (empty = 5% of range)', 'it': 'Prominenza minima (vuoto = 5% dell’intervallo)'}},
         {'id': 'distance', 'type': 'int', 'default': 1, 'min': 1,
@@ -69,6 +69,8 @@ def run(df, p, ctx):
     x, y = ctx.xy(df, p['x'], p['y'])
     order = np.argsort(x, kind='stable')
     x, y = x[order], y[order]
+    if p['minima'] and p.get('bl_peaks', 'auto') == 'auto':
+        p = {**p, 'bl_peaks': 'down'}             # minima: the baseline lies above the dips
     b = ctx.baseline(x, y, p)                      # on the whole signal, then the range
     base = b.values if b is not None else np.zeros_like(y)
     keep = np.ones(x.size, bool)

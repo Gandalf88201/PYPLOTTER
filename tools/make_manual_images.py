@@ -387,7 +387,7 @@ def _(ui):
 def _(ui):
     ui.fresh('ir', kind='line')
     tall(ui)
-    ui.analysis('baseline', baseline='arpls')
+    ui.analysis('baseline')
     ui.shot_between('baseline_form', '#anBody .field', '#anMain .an-actions', pad=4)
     ui.run()
     ui.overlay()
@@ -418,7 +418,7 @@ def _(ui):
     ui.analysis('recipe_peak_fit', y='Sample A')
     ui.run(3500)
     ui.shot('peak_fit_result', '#anResults', pad=4)
-    ui.overlay()
+    ui.overlay(5000)
     normal(ui)
     ui.shot('peak_fit_figure', '.stage-wrap')
 
