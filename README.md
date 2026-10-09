@@ -125,7 +125,9 @@ printed in the terminal window. Options:
   curve (each click keeps its x and y), or an automatic method — by default a straight line (or flat level, or low
   polynomial) under the signal that the peaks do not pull up (Mazet et al. 2005), or arPLS, asymmetric least squares,
   SNIP or rubber band for curved backgrounds; spectra whose peaks point down (transmittance) get the baseline above
-  the dips, recognised automatically. It draws the baseline
+  the dips, recognised automatically. The corrected spectrum opens on its own (transmittance divided by the
+  baseline, T / T₀, so it stays in %; other signals with the baseline subtracted), optionally with the spectrum
+  before the correction. It draws the baseline
   and the corrected signal and warns when the baseline is too high. *Peak finding*, *Peak fit* and *Integral*
   then offer the same baseline already selected: heights, widths and areas are measured above it, each
   peak's area runs between the minima that separate it from its neighbours, and the joint peak fit keeps
@@ -278,7 +280,8 @@ con un solo pulsante e una barra di avanzamento. Tieni aperta la finestra del te
   *Linea di base* usa punti di ancoraggio che **clicchi sulla figura** (o scrivi), uniti da segmenti o da
   una curva liscia (ogni clic tiene x e y), oppure un metodo automatico — di base una retta (o un livello piatto, o un
   polinomio basso) sotto il segnale che i picchi non sollevano (Mazet et al. 2005), oppure arPLS, minimi quadrati asimmetrici,
-  SNIP o elastico per fondi curvi; negli spettri con picchi in giù (trasmittanza) la linea va sopra gli avvallamenti.
+  SNIP o elastico per fondi curvi; negli spettri con picchi in giù (trasmittanza) la linea va sopra gli avvallamenti. Lo spettro corretto si apre da solo
+  (la trasmittanza è divisa per la linea di base, T / T₀, e resta in %), su richiesta insieme allo spettro prima della correzione.
   Disegna la linea e il segnale corretto e avvisa se la linea è troppo alta. *Ricerca dei picchi*, *Fit dei
   picchi* e *Integrale* propongono poi la stessa linea già selezionata: altezze, larghezze e aree sono
   misurate sopra di essa, l’area di ogni picco va dai minimi che lo separano dai vicini, e il fit congiunto

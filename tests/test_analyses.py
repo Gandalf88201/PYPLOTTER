@@ -287,6 +287,28 @@ class TestBuiltins(unittest.TestCase):
         up = baselines.estimate(x, y, {'baseline': 'poly', 'bl_peaks': 'up'})    # forced the other way: under the dips
         self.assertLess(up.values.min(), 60)
 
+    def test_baseline_correction_divides_transmittance(self):
+        """Transmittance is divided by its baseline (stays in %, flat at 100); other signals are subtracted (flat at 0).
+        The corrected spectrum is drawn alone unless the spectrum before the correction is asked for."""
+        import numpy as np
+        from piplotter import samples
+        df = samples.make('ir')
+        p = {'x': df.columns[0], 'y': df.columns[1]}
+        _, _, r = self.pm.run('baseline', df, p, lang='en')
+        corr = r.frame['Transmittance (%) (baseline-corrected)']
+        self.assertAlmostEqual(float(np.percentile(corr, 90)), 100, delta=2)       # between the bands: 100 %
+        self.assertLess(corr.min(), 20)                                             # the C=O band stays deep
+        self.assertEqual(r.plot['y'], ['Transmittance (%) (baseline-corrected)'])
+        self.assertFalse([o for o in r.overlays if o.get('on_figure', True)])     # nothing over the original
+        _, _, both = self.pm.run('baseline', df, {**p, 'show_original': True}, lang='en')
+        self.assertEqual(both.plot['y'], ['Transmittance (%)', 'Transmittance (%) (baseline-corrected)'])
+        self.assertEqual(len([o for o in both.overlays if o.get('on_figure', True)]), 2)   # baseline + corrected
+        _, _, sub = self.pm.run('baseline', df, {**p, 'correction': 'subtract'}, lang='en')
+        self.assertAlmostEqual(float(np.percentile(sub.frame['Transmittance (%) (baseline-corrected)'], 90)), 0, delta=2)
+        sp = samples.make('spectra')
+        _, _, a = self.pm.run('baseline', sp, {'x': sp.columns[0], 'y': 'Sample A'}, lang='en')
+        self.assertAlmostEqual(float(np.median(a.frame['Sample A (baseline-corrected)'])), 0, delta=0.02)
+
     def test_clicked_points_keep_their_height(self):
         """A clicked point (x and y) stays where it was clicked, even where the signal has a spike."""
         import numpy as np

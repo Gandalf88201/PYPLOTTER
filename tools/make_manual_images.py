@@ -390,9 +390,17 @@ def _(ui):
     ui.analysis('baseline')
     ui.shot_between('baseline_form', '#anBody .field', '#anMain .an-actions', pad=4)
     ui.run()
-    ui.overlay()
+    ui.overlay()                                  # the corrected spectrum alone, in its own tab
     normal(ui)
     ui.shot('baseline_figure', '.stage-wrap')
+    ui.pg.click('#btnBack')
+    ui.wait_idle()
+    tall(ui)
+    ui.analysis('baseline', show_original=True)
+    ui.run()
+    ui.overlay()                                  # now on a copy of the figure, with the spectrum before the correction
+    normal(ui)
+    ui.shot('baseline_original', '.stage-wrap')
 
 
 @shot('peaks')

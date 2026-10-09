@@ -233,14 +233,29 @@ Choose **Baseline**. By default the program draws a **straight line under the si
 
 ![The Baseline form](img/baseline_form.png "The Baseline form with the default: a straight line under the signal (Shape 1), and the direction of the peaks recognised from the signal.")
 
-* **Automatic: straight line under the signal (or polynomial)** — the default. The line is fitted to the points that lie on the baseline; points higher than the line by more than three times the noise (the peaks) do not pull it up (Mazet et al., 2005). **Shape** sets how it may bend: **0** a flat, constant level; **1** a straight line (the default); **2–6** a gently curved polynomial for backgrounds that bend. Where the signal has no peaks, the corrected signal is flat at zero.
+* **Automatic: straight line under the signal (or polynomial)** — the default. The line is fitted to the points that lie on the baseline; points higher than the line by more than three times the noise (the peaks) do not pull it up (Mazet et al., 2005). **Shape** sets how it may bend: **0** a flat, constant level; **1** a straight line (the default); **2–6** a gently curved polynomial for backgrounds that bend. Where the signal has no peaks, the corrected signal is flat.
 * **Anchor points (click on the figure)**: press **Pick on the figure** and click where the signal lies on its baseline, between and around the peaks; press **Esc** or **Done** when finished (**Remove last** and **Clear** correct mistakes). **Each click keeps its x and its y**, so the point stays exactly where you clicked (the text box shows `x y`, one point per line). A point written with **x alone** takes the height of the signal there. Choose whether the points are joined by straight lines or by a smooth curve.
 * **Automatic methods that follow curved backgrounds**: *arPLS*, *asymmetric least squares*, *SNIP* or *rubber band*. Change **Stiffness** (lower follows the signal more) or **Asymmetry** if the line climbs into broad peaks.
 * **The peaks point**: up (absorbance, counts, intensity) or down (transmittance, dips). With **recognise from the signal** the program decides from the shape of the data: for a transmittance spectrum like the example the baseline is drawn **above** the dips, along the top of the spectrum.
 
-Press **Run analysis** and then **Show on a copy of the figure**: you see the data, the baseline and the corrected signal (signal − baseline). The results say which way the peaks point and how many points lie on the wrong side of the baseline; above 5 % the program warns that the line cuts into the signal there.
+Two more choices decide what you get:
 
-![A baseline drawn on an IR spectrum](img/baseline_figure.png "IR transmittance: the straight baseline (dashed) runs along the top of the spectrum, above the dips; the corrected signal (below) is flat at zero between the bands.")
+* **Correction** — how the baseline is taken out of the signal. *Automatic* **divides** a transmittance (or reflectance) spectrum by its baseline, T / T₀ × 100, so the corrected spectrum stays in % with the baseline at 100 % and the bands as deep as before; any other signal has the baseline **subtracted**, so its baseline is at 0. You can also force *subtract* or *divide*.
+* **Also show the spectrum before the correction, with its baseline** — off by default.
+
+Press **Run analysis**, then the green button under the results:
+
+* With the option **off** (the default) the button is **Plot the result**: a new tab shows **only the corrected spectrum**, with the corrected baseline as a dotted line (at 100 % or at 0). The original figure is not touched.
+
+![The corrected spectrum alone](img/baseline_figure.png "IR transmittance divided by its straight baseline: the corrected spectrum is in %, flat at 100 % (dotted) between the bands, which keep their depth.")
+
+* With the option **on** the button is **Show on a copy of the figure**: the copy shows the spectrum before the correction, its baseline (dashed) and anchor points, and the corrected spectrum, so you can compare them. *Plot the result* gives the same curves in a figure of their own.
+
+![Before and after the correction on the same axes](img/baseline_original.png "With “Also show the spectrum before the correction”: the original spectrum, its baseline (dashed) and the corrected spectrum together.")
+
+> **Note:** the corrected spectrum is a new data set: in its tab you can style it, export it, or analyse it further. Its **Data table** contains x, the original signal, the baseline and the corrected signal.
+
+The results also say which way the peaks point, which correction was used, and how many points lie on the wrong side of the baseline; above 5 % the program warns that the line cuts into the signal there.
 
 *Peak finding*, *Peak fit* and *Integral* then offer the same baseline already selected, so heights, widths and areas are measured **above it**.
 
@@ -438,5 +453,6 @@ The tool starts its own copy of π-plotter (with a temporary state folder, so yo
 
 | Version | Changes to the manual |
 |---|---|
+| 0.2.2 | Baseline: the corrected spectrum is drawn alone (the spectrum before the correction on request); transmittance is divided by its baseline (T / T₀, stays in %). |
 | 0.2.1 | Baseline: the new default (straight line under the signal), peaks pointing down (transmittance), clicked anchor points keep their y. |
 | 0.2.0 | First edition: starting, data, plotting, figure style, zoom and 3D, analyses (fitting, kinetics, baseline and peaks, IR assignment, simulations, statistics), export, plugins and modules. |

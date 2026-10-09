@@ -1,3 +1,28 @@
+# π-plotter 0.2.2
+
+**The corrected spectrum on its own, and transmittance divided by its baseline.**
+*Italiano più sotto.*
+
+## What's new
+- *Baseline* no longer draws the corrected signal over the original one (it looked like the curve had split in
+  two). **Plot the result** opens the **corrected spectrum alone**, with the corrected baseline as a dotted line.
+- **Also show the spectrum before the correction, with its baseline** (off by default) draws, on a copy of the
+  figure, the original spectrum, its baseline and anchor points, and the corrected spectrum, to compare them.
+- **Correction**: transmittance (or reflectance) is now **divided** by its baseline, T / T₀ × 100, the standard
+  correction: the corrected spectrum stays in %, flat at 100 % between the bands, which keep their depth. Other
+  signals have the baseline subtracted (flat at 0). *Subtract* or *divide* can be forced.
+- Manual: the baseline section explains both views and the correction, with new pictures.
+
+## Italiano
+- *Linea di base* non sovrappone più il segnale corretto a quello originale (sembrava che la curva si sdoppiasse):
+  **Traccia il risultato** apre **solo lo spettro corretto**, con la linea di base corretta punteggiata.
+- **Mostra anche lo spettro prima della correzione** (facoltativo) li disegna insieme su una copia della figura.
+- **Correzione**: la trasmittanza ora è **divisa** per la linea di base (T / T₀ × 100) e resta in %, piatta a 100 %;
+  gli altri segnali sono sottratti (piatti a 0). Si può forzare *sottrai* o *dividi*.
+- Manuale aggiornato con le nuove immagini.
+
+---
+
 # π-plotter 0.2.1
 
 **A baseline that stays flat: straight line under the signal, dips handled, clicked points kept where clicked.**
