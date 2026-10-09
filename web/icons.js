@@ -1,4 +1,4 @@
-// Plot-type icons (original drawings, MIT like the rest of PyPlotter). 24×24, currentColor.
+// Plot-type icons (original drawings, MIT like the rest of π-plotter). 24×24, currentColor.
 'use strict';
 (function () {
   const S = 'fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"';

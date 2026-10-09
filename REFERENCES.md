@@ -1,12 +1,12 @@
 # References / Riferimenti
 
-PyPlotter is a front end: the figures are drawn by open-source scientific Python packages.
-When a figure made with PyPlotter is published, cite the packages that drew it — at least
+π-plotter is a front end: the figures are drawn by open-source scientific Python packages.
+When a figure made with π-plotter is published, cite the packages that drew it — at least
 Matplotlib, NumPy and pandas, plus any optional module the figure used. The **Python script
 (.zip)** export writes a `REFERENCES.txt` with exactly the references a figure needs.
 
-PyPlotter è un'interfaccia: le figure sono disegnate da pacchetti Python scientifici open source.
-Quando pubblichi una figura fatta con PyPlotter, cita i pacchetti che l'hanno prodotta — almeno
+π-plotter è un'interfaccia: le figure sono disegnate da pacchetti Python scientifici open source.
+Quando pubblichi una figura fatta con π-plotter, cita i pacchetti che l'hanno prodotta — almeno
 Matplotlib, NumPy e pandas, più i moduli facoltativi usati. L'esportazione **Script Python (.zip)**
 scrive un `REFERENCES.txt` con esattamente i riferimenti necessari.
 
@@ -37,7 +37,7 @@ scrive un `REFERENCES.txt` con esattamente i riferimenti necessari.
 - **cividis** — Nuñez, J. R., Anderton, C. R. & Renslow, R. S. Optimizing colormaps with consideration for color vision deficiency to enable accurate interpretation of scientific data. *PLOS ONE* 13, e0199239 (2018). doi:10.1371/journal.pone.0199239
 - **tab10** — Matplotlib's default qualitative cycle (Matplotlib licence).
 
-## Methods used in PyPlotter's own code / Metodi usati nel codice di PyPlotter
+## Methods used in π-plotter's own code / Metodi usati nel codice di π-plotter
 
 - Density curves (KDE): Gaussian kernel with Silverman's rule-of-thumb bandwidth — Silverman, B. W. *Density Estimation for Statistics and Data Analysis*. Chapman & Hall (1986).
 - Confidence and prediction bands of non-linear fits: first-order (delta-method) propagation of the parameter covariance, var = J·C·Jᵀ (J by central differences), with Student's t quantile; prediction bands add the residual (or measurement) variance. See e.g. Seber, G. A. F. & Wild, C. J. *Nonlinear Regression*. Wiley (1989).
@@ -70,7 +70,7 @@ Each analysis lists its references in the app next to the result; they are colle
 - Baseline through anchor points, smooth curve (PCHIP) — Fritsch, F. N. & Carlson, R. E. Monotone piecewise cubic interpolation. *SIAM J. Numer. Anal.* 17, 238–246 (1980). doi:10.1137/0717021
 - Automatic equilibration detection (recipe *Equilibration of a simulation*) — Chodera, J. D. A simple method for automated equilibration detection in molecular simulations. *J. Chem. Theory Comput.* 12, 1799–1805 (2016). doi:10.1021/acs.jctc.5b00784
 - Histogram bin width (recipe *Gaussian distribution*) — Freedman, D. & Diaconis, P. On the histogram as a density estimator: L2 theory. *Z. Wahrscheinlichkeitstheorie verw. Gebiete* 57, 453–476 (1981). doi:10.1007/BF01025868
-- IR peak assignment, table of characteristic frequencies (`pyplotter/analyses/ir_assign.py`, `BANDS`: standard values compiled for PyPlotter, to be checked against these sources) —
+- IR peak assignment, table of characteristic frequencies (`piplotter/analyses/ir_assign.py`, `BANDS`: standard values compiled for π-plotter, to be checked against these sources) —
   Socrates, G. *Infrared and Raman Characteristic Group Frequencies: Tables and Charts*, 3rd ed. Wiley, Chichester (2001);
   Silverstein, R. M., Webster, F. X., Kiemle, D. J. & Bryce, D. L. *Spectrometric Identification of Organic Compounds*, 8th ed. Wiley, Hoboken (2014);
   Pretsch, E., Bühlmann, P. & Badertscher, M. *Structure Determination of Organic Compounds: Tables of Spectral Data*, 4th ed. Springer, Berlin (2009). doi:10.1007/978-3-540-93810-1;
@@ -81,7 +81,7 @@ Each analysis lists its references in the app next to the result; they are colle
 ## Journal size presets / Formati rivista
 
 The presets only set common column widths. Journal names are trademarks of their owners, who
-are not affiliated with PyPlotter; always check the current author guidelines of the journal.
+are not affiliated with π-plotter; always check the current author guidelines of the journal.
 
 I formati impostano solo larghezze di colonna comuni. I nomi delle riviste sono marchi dei
-rispettivi titolari, non affiliati a PyPlotter; verifica sempre le istruzioni per gli autori.
+rispettivi titolari, non affiliati a π-plotter; verifica sempre le istruzioni per gli autori.

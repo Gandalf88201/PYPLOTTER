@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="pp-token" content="{{TOKEN}}">
 <meta name="pp-build" content="{{BUILD}}">
-<title>PyPlotter</title>
+<title>π-plotter · Dr. T. Francese</title>
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/static/app.css">
 <script src="/static/theme.js"></script>
@@ -14,7 +14,7 @@
 <header class="topbar">
   <div class="brand">
     <svg viewBox="0 0 32 32" width="26" height="26" aria-hidden="true"><rect x="1.5" y="1.5" width="29" height="29" rx="7" fill="var(--accent)"/><path d="M7 23 L12 15 L16 19 L25 8" fill="none" stroke="var(--on-accent)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="15" r="1.9" fill="var(--on-accent)"/><circle cx="16" cy="19" r="1.9" fill="var(--on-accent)"/></svg>
-    <span class="brand-name">PyPlotter</span>
+    <span class="brand-text"><span class="brand-name">π-plotter</span><span class="brand-author">Dr. T. Francese</span></span>
     <span class="dataset-name" id="datasetName"></span>
   </div>
   <div class="top-actions">
@@ -26,6 +26,10 @@
       <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 2 3 7v10l9 5 9-5V7z M3 7l9 5 9-5 M12 12v10" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
       <span data-i18n="modules.button">Modules</span><span class="badge" id="updatesBadge" hidden></span>
     </button>
+    <a class="btn ghost" id="btnManual" href="/manual" target="_blank" rel="noopener" data-i18n-title="manual.title">
+      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5z M4 20.5A2.5 2.5 0 0 0 6.5 23H20v-5 M9 8h7 M9 12h5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/></svg>
+      <span data-i18n="manual.button">Manual</span>
+    </a>
     <button class="btn ghost" id="btnAbout" data-i18n-title="about.title">
       <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="12" cy="12" r="9.5" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M12 11v6M12 7.5v.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
     </button>
@@ -144,7 +148,7 @@
         <div class="empty" id="emptyState">
           <svg viewBox="0 0 120 80" width="160" aria-hidden="true"><path d="M10 70h100M10 70V8" stroke="var(--muted)" stroke-width="1.5" fill="none"/><path d="M14 60 32 42 48 50 66 24 84 34 106 14" stroke="var(--accent)" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/><g fill="var(--accent)"><circle cx="32" cy="42" r="3"/><circle cx="48" cy="50" r="3"/><circle cx="66" cy="24" r="3"/><circle cx="84" cy="34" r="3"/></g></svg>
           <h3 data-i18n="empty.title">Open a data file to start</h3>
-          <p class="muted" data-i18n="empty.text">CSV, Excel, JSON, HDF5, NetCDF, MATLAB, Parquet, FITS, SQLite, JCAMP-DX and more. PyPlotter suggests the right plot.</p>
+          <p class="muted" data-i18n="empty.text">CSV, Excel, JSON, HDF5, NetCDF, MATLAB, Parquet, FITS, SQLite, JCAMP-DX and more. π-plotter suggests the right plot.</p>
         </div>
         <div class="figure-box" id="figureBox" hidden>
           <img id="figure" alt="" draggable="false">
@@ -296,8 +300,9 @@
 <section class="setup" id="setup" hidden>
   <div class="setup-card">
     <svg viewBox="0 0 32 32" width="48" height="48" aria-hidden="true"><rect x="1.5" y="1.5" width="29" height="29" rx="7" fill="var(--accent)"/><path d="M7 23 L12 15 L16 19 L25 8" fill="none" stroke="var(--on-accent)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-    <h1 data-i18n="setup.title">Welcome to PyPlotter</h1>
-    <p data-i18n="setup.text">To draw figures PyPlotter needs NumPy, pandas and Matplotlib (about 80 MB, open source). They are installed once, in PyPlotter's private environment.</p>
+    <h1 data-i18n="setup.title">Welcome to π-plotter</h1>
+    <p class="signature">Dr. T. Francese</p>
+    <p data-i18n="setup.text">To draw figures π-plotter needs NumPy, pandas and Matplotlib (about 80 MB, open source). They are installed once, in π-plotter's private environment.</p>
     <div class="progress big" id="setupProgress" hidden><div class="bar"></div></div>
     <p class="phase" id="setupPhase"></p>
     <button class="btn primary" id="btnSetup" data-i18n="setup.install">Install and start</button>
@@ -368,8 +373,8 @@
 
 <dialog id="aboutDialog" class="dialog wide">
   <div class="dlg">
-    <div class="dlg-head"><h2>PyPlotter <span id="aboutVersion" class="muted small"></span></h2><button class="btn ghost icon" data-close aria-label="Close">✕</button></div>
-    <p data-i18n="about.licence">PyPlotter is free software under the MIT licence. It relies only on open-source packages; their licences and the references to cite are listed below.</p>
+    <div class="dlg-head"><h2>π-plotter <span id="aboutVersion" class="muted small"></span><span class="signature">Dr. T. Francese</span></h2><button class="btn ghost icon" data-close aria-label="Close">✕</button></div>
+    <p data-i18n="about.licence">π-plotter is free software under the MIT licence. It relies only on open-source packages; their licences and the references to cite are listed below.</p>
     <h3 data-i18n="about.cite">How to cite</h3>
     <p class="small" data-i18n="about.cite_text">In the methods, cite Matplotlib and the other modules used for the figure. Every “Python script” export includes a REFERENCES.txt with exactly those references.</p>
     <div id="aboutRefs" class="refs"></div>
@@ -380,7 +385,7 @@
       <li>Nuñez, J. R., Anderton, C. R. &amp; Renslow, R. S. Optimizing colormaps with consideration for color vision deficiency (cividis). <i>PLOS ONE</i> 13, e0199239 (2018). doi:10.1371/journal.pone.0199239</li>
       <li>van der Walt, S. &amp; Smith, N. <i>mpl colormaps</i> (viridis, plasma, inferno, magma), 2015. <a href="https://bids.github.io/colormap/" target="_blank" rel="noopener">bids.github.io/colormap</a></li>
     </ul>
-    <p class="tiny muted" data-i18n="about.trademarks">Journal names in the size presets only describe column widths; they are trademarks of their owners, who are not affiliated with PyPlotter.</p>
+    <p class="tiny muted" data-i18n="about.trademarks">Journal names in the size presets only describe column widths; they are trademarks of their owners, who are not affiliated with π-plotter.</p>
   </div>
 </dialog>
 

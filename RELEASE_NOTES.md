@@ -1,4 +1,59 @@
-# PyPlotter 0.1.4
+# π-plotter 0.2.0
+
+**A new name, a signature, and a built-in user manual with pictures.**
+*Italiano più sotto.*
+
+## What's new
+
+### The program is now π-plotter
+- PyPlotter's name was already in use, so the program is **π-plotter** from now on. The window, the
+  terminal banner, the exports and the documents say so; the launchers are `start_piplotter.command`,
+  `start_piplotter.bat` and `start_piplotter.py`, the Python package is `piplotter`, and the environment
+  variables start with `PIPLOTTER_`.
+- Nothing is lost: the first start copies your plugins, your module list and the session token from
+  `~/.pyplotter` to `~/.piplotter` (the old folder is left alone); plugins that still say
+  `from pyplotter import baselines` keep working; saved style templates and module lists of the old name
+  are still read.
+- The GitHub repository and the folder of the project keep their names for now.
+
+### Signature
+- **Dr. T. Francese** appears under the name in the top bar (as in MONET), in the *About* window, on the
+  welcome page, in the terminal banner and in the manual.
+
+### User manual
+- A **Manual** button in the top bar opens the manual in a new tab. It follows the order of the work: open
+  data, choose variables and plot, style the figure (size, colours, text, axes, zoom, 3D), analyse
+  (fitting, kinetics, baseline and peaks, peak fit, IR assignment, equilibration and correlated errors,
+  group tests, relations), export, plugins and modules, troubleshooting. 43 pictures are taken from the
+  program itself.
+- The text is `manual/MANUAL.md`; the pictures are `manual/img/`. `tools/make_manual_images.py` redraws all
+  of them (or just some) after a change of the interface, so the manual can be kept up to date.
+- The manual prints cleanly (print / save as PDF from the browser) and follows light and dark mode.
+
+---
+
+## Italiano
+
+### Il programma ora si chiama π-plotter
+- Il nome PyPlotter era già in uso: da ora il programma è **π-plotter**. Cambiano i file di avvio
+  (`start_piplotter.*`), il pacchetto Python (`piplotter`) e le variabili d'ambiente (`PIPLOTTER_`).
+- Non si perde nulla: al primo avvio plugin, elenco dei moduli e token passano da `~/.pyplotter` a
+  `~/.piplotter` (la vecchia cartella resta com'è); i plugin che importano `pyplotter` continuano a
+  funzionare, e i modelli di stile e gli elenchi di moduli salvati col vecchio nome si leggono ancora.
+
+### Firma
+- **Dr. T. Francese** compare sotto il nome nella barra in alto (come in MONET), nella finestra
+  *Informazioni*, nella pagina di benvenuto, nel terminale e nel manuale.
+
+### Manuale d'uso
+- Il pulsante **Manuale** apre il manuale (in inglese) in una nuova scheda: dall'apertura dei dati
+  all'esportazione, passando per stile, zoom, 3D, fit, cinetica, linea di base e picchi, assegnazione IR,
+  errori di dati correlati, test tra gruppi, plugin e moduli. Il testo è `manual/MANUAL.md` e le immagini
+  si rigenerano con `tools/make_manual_images.py`.
+
+---
+
+# π-plotter 0.1.4
 
 **Modules from PyPI that are checked for real, with an icon for their functions — and IR peak assignment.**
 *Italiano più sotto.*
@@ -35,7 +90,7 @@
 - **An install that cannot be used is undone.** Right after installing, the module is checked. If it
   cannot be used, the packages it added are removed and the ones it upgraded go back to their
   versions; the environment stays as it was and the reason is shown.
-- **Integrations.** A module does something in PyPlotter through the plugins that list it in
+- **Integrations.** A module does something in π-plotter through the plugins that list it in
   `requires`.
   - A module that no plugin uses says so, with **Create integration**: a first, working analysis that
     uses it, opened in the editor.
@@ -51,7 +106,7 @@
 
 ## Updating
 Download the source of this release and replace the old folder. Your settings and plugins in
-`~/.pyplotter/` are kept. Restart PyPlotter after updating.
+`~/.piplotter/` are kept. Restart π-plotter after updating.
 
 ---
 
@@ -89,14 +144,14 @@ Download the source of this release and replace the old folder. Your settings an
 - Il contatore rosso su *Moduli* conta anche i tuoi moduli.
 
 ### Aggiornare
-Sostituisci la cartella con quella di questa versione e riavvia PyPlotter. Impostazioni e plugin in
-`~/.pyplotter/` restano.
+Sostituisci la cartella con quella di questa versione e riavvia π-plotter. Impostazioni e plugin in
+`~/.piplotter/` restano.
 
 Licenza MIT · © 2026 Tommaso Francese
 
 ---
 
-# PyPlotter 0.1.3
+# π-plotter 0.1.3
 
 **Zoom, move and rewrite on the figure itself — and peak labels that never overlap.**
 *Italiano più sotto.*
@@ -146,7 +201,7 @@ Licenza MIT · © 2026 Tommaso Francese
 
 ## Updating
 Download the source of this release and replace the old folder. Your settings and plugins in
-`~/.pyplotter/` are kept. Restart PyPlotter after updating.
+`~/.piplotter/` are kept. Restart π-plotter after updating.
 
 ---
 
@@ -177,14 +232,14 @@ sovrappongono.**
 - Le etichette dei picchi possono stare accanto al picco, con una linea di richiamo.
 
 ### Aggiornare
-Sostituisci la cartella con quella di questa versione e riavvia PyPlotter. Impostazioni e plugin in
-`~/.pyplotter/` restano.
+Sostituisci la cartella con quella di questa versione e riavvia π-plotter. Impostazioni e plugin in
+`~/.piplotter/` restano.
 
 Licenza MIT · © 2026 Tommaso Francese
 
 ---
 
-# PyPlotter 0.1.2
+# π-plotter 0.1.2
 
 **3D figures, JCAMP-DX spectra and modules of your choice from PyPI.**
 *Italiano più sotto.*
@@ -214,9 +269,9 @@ Licenza MIT · © 2026 Tommaso Francese
   - its licence and the packages installed with it;
   - a reference to cite, added to the results of analyses that use it;
   - an *Uninstall* button.
-- They are recorded in `~/.pyplotter/user-modules.json`. In a new environment they appear as *not
+- They are recorded in `~/.piplotter/user-modules.json`. In a new environment they appear as *not
   installed*, with *Install again*.
-- These are third-party code that PyPlotter does not check: install only what you trust.
+- These are third-party code that π-plotter does not check: install only what you trust.
 
 ---
 
@@ -234,13 +289,13 @@ Licenza MIT · © 2026 Tommaso Francese
   - una licenza non approvata OSI, proprietaria o non riconosciuta richiede la tua conferma esplicita;
   - per ogni modulo: riferimento da citare e *Disinstalla*;
   - dopo la perdita dell’ambiente, *Installa di nuovo*.
-  - Sono codice di terze parti non controllato da PyPlotter.
+  - Sono codice di terze parti non controllato da π-plotter.
 
 Licenza MIT · © 2026 Tommaso Francese
 
 ---
 
-# PyPlotter 0.1.1
+# π-plotter 0.1.1
 
 **Baseline first, then the analysis** — and tables with tens of thousands of columns.
 *Italiano più sotto.*
@@ -267,7 +322,7 @@ Licenza MIT · © 2026 Tommaso Francese
   (`19600-19840`) or of positions (`#1-500`). **Shift+click** ticks a whole block.
 - Opening a 20 000-column table takes well under a second of analysis instead of about 45 s.
 - A **heat map** draws all the columns, anti-aliased, so no column is skipped. A **correlation matrix**
-  takes up to 2 000 columns. Beyond these limits PyPlotter explains why and suggests a block or a heat map.
+  takes up to 2 000 columns. Beyond these limits π-plotter explains why and suggests a block or a heat map.
 
 ### Figures
 - Analysis layers (e.g. **peak markers**) have their own **marker shape and size** in *Overlays*.
@@ -290,7 +345,7 @@ Licenza MIT · © 2026 Tommaso Francese
 
 ## Updating
 Download the source of this release and replace the old folder. Your settings and plugins in
-`~/.pyplotter/` are kept. A **customised copy** of a built-in analysis stays as you wrote it, so it does
+`~/.piplotter/` are kept. A **customised copy** of a built-in analysis stays as you wrote it, so it does
 not get these changes. To use the new version, disable your copy in the plugin editor.
 
 ---
@@ -326,7 +381,7 @@ not get these changes. To use the new version, disable your copy in the plugin e
 - **Integrale:** la retta tra gli estremi è ora una scelta di *Linea di base*.
 
 ### Aggiornare
-Sostituisci la cartella con quella di questa versione. Impostazioni e plugin in `~/.pyplotter/`
+Sostituisci la cartella con quella di questa versione. Impostazioni e plugin in `~/.piplotter/`
 restano. Una **copia personalizzata** di un’analisi inclusa non riceve queste modifiche.
 
 Licenza MIT · © 2026 Tommaso Francese

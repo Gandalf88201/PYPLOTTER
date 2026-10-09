@@ -1,25 +1,34 @@
-# PyPlotter
+# π-plotter
+
+*Dr. T. Francese*
 
 Publication-quality plots from almost any data file, in your browser, drawn by the scientific
 Python stack (Matplotlib, NumPy, pandas, and optional modules installed on demand).
 Bilingual (English / Italiano), light and dark mode. MIT licence.
+
+**New: a built-in user manual** (button *Manual* in the top bar, or `/manual`) walks through every step —
+opening data, plotting, styling, fitting, peaks, statistics, export — with pictures taken from the
+program. Its text is [manual/MANUAL.md](manual/MANUAL.md).
+
+*Formerly PyPlotter (renamed in 0.2.0: the name was already in use). Your plugins and module list in
+`~/.pyplotter` are copied to `~/.piplotter` the first time, and old plugins that import `pyplotter` keep working.*
 
 *Italiano più sotto.*
 
 ## Start
 
 1. Install **Python 3.10 or newer** (<https://www.python.org/downloads/>; on Windows tick *Add python.exe to PATH*).
-2. Start PyPlotter:
-   - **macOS**: double-click `start_pyplotter.command` (first time: right-click › **Open** › **Open**).
-   - **Windows**: double-click `start_pyplotter.bat`.
-   - **Linux**: `./start_pyplotter.command`.
-   - Any system: `python3 start_pyplotter.py` (or `./start_pyplotter.py`). Whatever Python starts it,
-     PyPlotter re-runs itself inside its private `.venv` (created on first use), so packages never go into
-     a system or Homebrew Python. Set `PYPLOTTER_NO_VENV=1` to use the current environment (e.g. conda).
+2. Start π-plotter:
+   - **macOS**: double-click `start_piplotter.command` (first time: right-click › **Open** › **Open**).
+   - **Windows**: double-click `start_piplotter.bat`.
+   - **Linux**: `./start_piplotter.command`.
+   - Any system: `python3 start_piplotter.py` (or `./start_piplotter.py`). Whatever Python starts it,
+     π-plotter re-runs itself inside its private `.venv` (created on first use), so packages never go into
+     a system or Homebrew Python. Set `PIPLOTTER_NO_VENV=1` to use the current environment (e.g. conda).
 3. The browser opens at `http://127.0.0.1:8770`. On the first start the page installs NumPy,
-   pandas and Matplotlib into PyPlotter's private environment (`.venv`) — one button, one progress bar.
+   pandas and Matplotlib into π-plotter's private environment (`.venv`) — one button, one progress bar.
 
-Keep the terminal window open while you work; Ctrl+C stops PyPlotter. Starting PyPlotter again
+Keep the terminal window open while you work; Ctrl+C stops π-plotter. Starting π-plotter again
 closes the copy that is already running, so there is always only one; if the page loses its
 service or belongs to an older run, a red bar at the top offers to reload. Problems are also
 printed in the terminal window. Options:
@@ -53,7 +62,7 @@ printed in the terminal window. Options:
 - **Publication-ready output**: exact physical size (journal column presets in mm/cm/in),
   PNG/TIFF/JPEG at 150–1200 DPI, vector PDF/SVG/EPS with editable text (TrueType fonts embedded),
   interactive HTML (Plotly), and a **Python script** ZIP (data + settings + script + references)
-  that recreates the figure without PyPlotter.
+  that recreates the figure without π-plotter.
 - **Full control**: styles (clean publication, seaborn-like, ggplot, SciencePlots Science /
   Nature-like / IEEE-like), colour-blind-safe palettes, colour maps (incl. Crameri), per-series
   colour/label/line/marker, fonts and sizes in points, LaTeX-style math (`$\alpha$`, `$10^{-3}$`),
@@ -109,7 +118,7 @@ printed in the terminal window. Options:
   also takes a range of numeric names (`19600-19840`) or of positions (`#1-500`), and Shift+click to tick
   a whole block. A heat map draws all of them (anti-aliased, so no column is skipped); a correlation
   matrix takes up to 2,000 columns and a plot with one line, box… per column up to 2,000 series —
-  beyond that the figure has more cells than pixels, and PyPlotter says so. The data table shows the
+  beyond that the figure has more cells than pixels, and π-plotter says so. The data table shows the
   first 100 columns; an automatic legend is left out when it does not fit in the axes.
 - **Baseline first, then the analysis** (spectra, chromatograms, any signal with peaks): the *Baseline*
   analysis takes anchor points you **click on the figure** (or type), joined by straight lines or a smooth
@@ -120,15 +129,15 @@ printed in the terminal window. Options:
   every peak inside its own region (a range of x can be chosen too).
 - **New** (top bar) starts a new analysis: closes data, figure, results and overlays, keeps your style.
 - **Your own analyses**: write plugins, or customise any built-in analysis, in the in-app editor;
-  they live in `~/.pyplotter/plugins/` and survive updates. See [PLUGINS.md](PLUGINS.md).
-- **Module manager**: `pyplotter/registry.json` lists every optional module with its licence and
-  citation. At each start PyPlotter checks PyPI for the latest versions; missing modules are offered
+  they live in `~/.piplotter/plugins/` and survive updates. See [PLUGINS.md](PLUGINS.md).
+- **Module manager**: `piplotter/registry.json` lists every optional module with its licence and
+  citation. At each start π-plotter checks PyPI for the latest versions; missing modules are offered
   when a feature needs them, updates are one click, each with a single progress bar. Each installed
   module is also **imported once in a separate Python** (at start, after installs, or with *Check
   imports*): a module that pip lists but that cannot be loaded is shown in red with its error and a
   *Reinstall* button.
 - **Your modules from PyPI** (*Modules › Your modules*): type the name of any package on PyPI and
-  press *Check*. PyPlotter asks pip what it would install (a dry run, nothing is changed) and shows the
+  press *Check*. π-plotter asks pip what it would install (a dry run, nothing is changed) and shows the
   package and every dependency with its **licence**. Open-source (OSI-approved) licences install
   normally; a licence that is not OSI-approved, proprietary or not recognised is marked and needs a
   tick in *“I have read the licence terms…”* before *Install* is enabled. Only plain package names are
@@ -136,7 +145,7 @@ printed in the terminal window. Options:
   Your modules are listed with their licence, the packages installed with them, an optional reference
   to cite (shown with the results of analyses whose plugin lists the module in `requires`) and an
   *Uninstall* button (refused when another package needs the module). They are recorded in
-  `~/.pyplotter/user-modules.json`: in a new environment they are shown as *not installed* with
+  `~/.piplotter/user-modules.json`: in a new environment they are shown as *not installed* with
   *Install again*. The import check goes deeper for your modules: each one is imported **with its
   submodules**, because a package whose `import` works may still have every part that does the work
   broken (uvvispy 0.1.1 with setuptools 84: `No module named 'pkg_resources'`). When more than half
@@ -145,25 +154,25 @@ printed in the terminal window. Options:
   right after installing: a module that **cannot be used is removed again**, with the packages that
   came with it, and the packages it upgraded go back to their versions, so the environment stays as it
   was and the reason is shown. Installing a module only makes it available to analyses: its features
-  appear in PyPlotter through plugins that list it in `requires` (its **integration**). A module that
+  appear in π-plotter through plugins that list it in `requires` (its **integration**). A module that
   no plugin uses says so, with *Create integration*, which writes a first, editable analysis that uses
   it. Once a module imports and is used, **its icon appears at the end of the bar of plot types**: it
   lists its functions (only the ones that work, if the module works in part), and choosing one opens it
-  in *Analysis* (see PLUGINS.md). These are **third-party code** that PyPlotter does not check: install only what
+  in *Analysis* (see PLUGINS.md). These are **third-party code** that π-plotter does not check: install only what
   you trust. The licence check reads the package metadata; it is a help, not legal advice.
 
 ## Privacy and security
 
 Everything runs on your computer. The service listens on 127.0.0.1 only, every request needs the
-token embedded in the page (a random value kept in `~/.pyplotter/token`, readable only by you, so open
+token embedded in the page (a random value kept in `~/.piplotter/token`, readable only by you, so open
 tabs keep working after a restart), and uploaded files are kept in a private temporary folder
-that is deleted when PyPlotter stops. Only package installs and checks (pip) and the version check
+that is deleted when π-plotter stops. Only package installs and checks (pip) and the version check
 contact the internet (PyPI). Analysis plugins are Python code running with your rights: install only plugins
 you trust.
 
 ## Licences and citations
 
-PyPlotter is MIT-licensed and depends only on open-source packages, installed by you from PyPI;
+π-plotter is MIT-licensed and depends only on open-source packages, installed by you from PyPI;
 nothing third-party is bundled. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for every
 licence and [REFERENCES.md](REFERENCES.md) for what to cite (also shown in the app under ⓘ).
 
@@ -173,7 +182,11 @@ licence and [REFERENCES.md](REFERENCES.md) for what to cite (also shown in the a
 .venv/bin/python -m unittest discover -s tests
 ```
 
-`pyplotter/plotting.py` is the renderer (a JSON spec → Matplotlib figure), `readers.py` the file
+The manual is `manual/MANUAL.md` plus `manual/img/*.png`, rendered by `piplotter/manual.py`. After an interface change,
+redraw the pictures with `python tools/make_manual_images.py` (needs `pip install playwright` and Chrome; see the last
+section of the manual).
+
+`piplotter/plotting.py` is the renderer (a JSON spec → Matplotlib figure), `readers.py` the file
 readers, `smart.py` the recommendations, `modules.py` the registry, PyPI check and pip installs,
 `plugins.py` the analysis plugin system, `analyses/` the built-in analyses, `server.py` the local HTTP
 API, `web/` the interface.
@@ -182,16 +195,19 @@ API, `web/` the interface.
 
 ## Italiano
 
-PyPlotter crea grafici di qualità editoriale da quasi ogni file di dati, nel browser, usando
+π-plotter crea grafici di qualità editoriale da quasi ogni file di dati, nel browser, usando
 Matplotlib, NumPy, pandas e moduli facoltativi installati quando servono. Interfaccia in italiano e
 inglese, modalità chiara e scura. Licenza MIT.
 
-**Avvio.** Installa Python 3.10 o successivo, poi fai doppio clic su `start_pyplotter.command`
-(macOS; la prima volta: clic destro › **Apri** › **Apri**) o su `start_pyplotter.bat` (Windows), oppure esegui
-`python3 start_pyplotter.py`: con qualunque Python venga avviato, PyPlotter usa sempre il proprio ambiente privato `.venv`
+**Manuale.** Il pulsante *Manuale* in alto apre il manuale d'uso (in inglese) con tutti i passaggi e le immagini.
+Il programma si chiamava PyPlotter: i tuoi plugin e l'elenco dei moduli in `~/.pyplotter` vengono copiati in `~/.piplotter`.
+
+**Avvio.** Installa Python 3.10 o successivo, poi fai doppio clic su `start_piplotter.command`
+(macOS; la prima volta: clic destro › **Apri** › **Apri**) o su `start_piplotter.bat` (Windows), oppure esegui
+`python3 start_piplotter.py`: con qualunque Python venga avviato, π-plotter usa sempre il proprio ambiente privato `.venv`
 (mai il Python di sistema o di Homebrew). Si apre il browser:
-al primo avvio la pagina installa NumPy, pandas e Matplotlib nell'ambiente privato di PyPlotter
-con un solo pulsante e una barra di avanzamento. Tieni aperta la finestra del terminale; Ctrl+C chiude PyPlotter.
+al primo avvio la pagina installa NumPy, pandas e Matplotlib nell'ambiente privato di π-plotter
+con un solo pulsante e una barra di avanzamento. Tieni aperta la finestra del terminale; Ctrl+C chiude π-plotter.
 
 **Funzioni principali.**
 - Apre CSV/TXT/DAT (riconosce da solo separatore `;`, virgola decimale, intestazione, righe di
@@ -253,7 +269,7 @@ con un solo pulsante e una barra di avanzamento. Tieni aperta la finestra del te
   filtro che accetta anche un intervallo di nomi numerici (`19600-19840`) o di posizioni (`#1-500`), e
   Maiusc+clic per spuntare un intero blocco. La mappa di calore le disegna tutte (con anti-aliasing,
   nessuna colonna saltata); la matrice di correlazione accetta fino a 2000 colonne e i grafici con una
-  linea, un box… per colonna fino a 2000 serie — oltre, la figura avrebbe più celle che pixel e PyPlotter
+  linea, un box… per colonna fino a 2000 serie — oltre, la figura avrebbe più celle che pixel e π-plotter
   lo dice. La tabella dati mostra le prime 100 colonne; la legenda automatica si omette se non sta negli assi.
 - **Prima la linea di base, poi l’analisi** (spettri, cromatogrammi, ogni segnale con picchi): l’analisi
   *Linea di base* usa punti di ancoraggio che **clicchi sulla figura** (o scrivi), uniti da segmenti o da
@@ -264,20 +280,20 @@ con un solo pulsante e una barra di avanzamento. Tieni aperta la finestra del te
   tiene ogni picco nella sua regione (si può anche scegliere un intervallo di x).
 - **Nuovo** (in alto) inizia una nuova analisi: chiude dati, figura, risultati e sovrapposizioni, mantiene lo stile.
 - **Plugin personali**: scrivi le tue analisi o personalizza quelle incluse nell'editor dell'app; restano
-  in `~/.pyplotter/plugins/` anche dopo gli aggiornamenti. Guida: [PLUGINS.md](PLUGINS.md).
+  in `~/.piplotter/plugins/` anche dopo gli aggiornamenti. Guida: [PLUGINS.md](PLUGINS.md).
 - Gestore dei moduli: a ogni avvio controlla su PyPI le ultime versioni; i moduli mancanti vengono
   proposti quando servono e si installano o aggiornano con un clic, con la sola barra di avanzamento.
   Ogni modulo installato viene anche **importato in un Python separato** (all'avvio, dopo le
   installazioni o con *Verifica import*): un modulo che pip elenca ma che non si carica appare in rosso
   con il suo errore e il pulsante *Reinstalla*.
 - **I tuoi moduli da PyPI** (*Moduli › I tuoi moduli*): scrivi il nome di un pacchetto su PyPI e premi
-  *Controlla*. PyPlotter chiede a pip cosa installerebbe (una prova, senza modifiche) e mostra il
+  *Controlla*. π-plotter chiede a pip cosa installerebbe (una prova, senza modifiche) e mostra il
   pacchetto e ogni dipendenza con la sua **licenza**. Le licenze open source (approvate OSI) si
   installano normalmente; una licenza non approvata OSI, proprietaria o non riconosciuta è segnalata e
   serve la spunta *«Ho letto le condizioni di licenza…»* per abilitare *Installa*. Si accettano solo
   nomi di pacchetti (niente versioni, URL, percorsi od opzioni di pip). I tuoi moduli sono elencati
   con licenza, pacchetti installati con essi, un riferimento da citare (facoltativo) e il pulsante
-  *Disinstalla*; sono registrati in `~/.pyplotter/user-modules.json`, così in un nuovo ambiente
+  *Disinstalla*; sono registrati in `~/.piplotter/user-modules.json`, così in un nuovo ambiente
   compaiono come *non installati* con *Installa di nuovo*. Per i tuoi moduli il controllo è più
   severo: ognuno viene importato **con i suoi sottomoduli**, perché un pacchetto il cui `import`
   funziona può avere rotte tutte le parti che fanno il lavoro (uvvispy 0.1.1 con setuptools 84:
@@ -287,16 +303,16 @@ con un solo pulsante e una barra di avanzamento. Tieni aperta la finestra del te
   Il controllo parte anche subito dopo l'installazione: un modulo **non utilizzabile viene tolto di
   nuovo**, con i pacchetti arrivati insieme, e i pacchetti che aveva aggiornato tornano alle loro
   versioni; l'ambiente resta com'era e viene mostrato il motivo. Installare un modulo lo rende solo
-  disponibile alle analisi: le sue funzioni compaiono in PyPlotter tramite i plugin che lo elencano in
+  disponibile alle analisi: le sue funzioni compaiono in π-plotter tramite i plugin che lo elencano in
   `requires` (la sua **integrazione**). Un modulo che nessun plugin usa lo dice, con *Crea
   integrazione*, che scrive una prima analisi modificabile che lo usa. Quando un modulo si importa ed è
   usato, **la sua icona compare in fondo alla barra dei tipi di grafico**: elenca le sue funzioni (solo
   quelle che funzionano, se il modulo funziona in parte) e sceglierne una la apre in *Analisi* (vedi
   PLUGINS.md). Sono **codice di terze parti** non
-  controllato da PyPlotter: installa solo ciò di cui ti fidi. Il controllo della licenza legge i
+  controllato da π-plotter: installa solo ciò di cui ti fidi. Il controllo della licenza legge i
   metadati del pacchetto: è un aiuto, non una consulenza legale.
 
-**Licenze e citazioni.** PyPlotter è software libero (MIT) e usa solo pacchetti open source scaricati
+**Licenze e citazioni.** π-plotter è software libero (MIT) e usa solo pacchetti open source scaricati
 da PyPI; non include codice di terze parti. Le licenze sono in
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), i riferimenti da citare in
 [REFERENCES.md](REFERENCES.md) e nell'app (pulsante ⓘ).

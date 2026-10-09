@@ -1,9 +1,9 @@
 cff-version: 1.2.0
-message: "If you use PyPlotter, please cite it, and cite the packages that drew your figures (see REFERENCES.md)."
-title: "PyPlotter: publication-quality plots from any data file"
+message: "If you use π-plotter, please cite it, and cite the packages that drew your figures (see REFERENCES.md)."
+title: "π-plotter: publication-quality plots from any data file"
 type: software
-version: 0.1.4
-date-released: 2026-10-08
+version: 0.2.0
+date-released: 2026-10-09
 license: MIT
 repository-code: "https://github.com/Gandalf88201/PYPLOTTER"
 authors:

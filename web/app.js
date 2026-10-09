@@ -1,4 +1,4 @@
-// PyPlotter interface. Talks only to the local Python service (same origin, session token).
+// π-plotter interface. Talks only to the local Python service (same origin, session token).
 'use strict';
 
 const TOKEN = document.querySelector('meta[name="pp-token"]').content;
@@ -2199,14 +2199,14 @@ function download(blob, name) {
 }
 
 function saveTemplate() {
-  const tpl = { schema: 'pyplotter-template/1', ...styleSnapshot() };
-  download(new Blob([JSON.stringify(tpl, null, 2)], { type: 'application/json' }), 'pyplotter-style.json');
+  const tpl = { schema: 'piplotter-template/1', ...styleSnapshot() };
+  download(new Blob([JSON.stringify(tpl, null, 2)], { type: 'application/json' }), 'piplotter-style.json');
 }
 
 async function loadTemplate(file) {
   try {
     const data = JSON.parse(await file.text());
-    if (!String(data.schema || '').startsWith('pyplotter-template/')) throw new Error(t('tpl.bad'));
+    if (!/^(piplotter|pyplotter)-template\//.test(String(data.schema || ''))) throw new Error(t('tpl.bad'));
     STYLE_KEYS.forEach(k => { if (data[k]) state.spec[k] = merge(state.spec[k], data[k]); });
     syncControls();
     buildKindOptions();
@@ -2370,7 +2370,7 @@ function renderUserModules() {
       used.className = 'meta';
       used.textContent = t('umod.used_by', { names: users.map(p => p.name[state.lang] || p.name.en).join(', ') });
       info.append(used);
-    } else if (users) {                          // works, but nothing in PyPlotter uses it: offer to start
+    } else if (users) {                          // works, but nothing in π-plotter uses it: offer to start
       const unused = document.createElement('div');
       unused.className = 'umod-unused small';
       unused.textContent = t('umod.unused') + ' ';

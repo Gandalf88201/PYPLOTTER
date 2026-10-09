@@ -1,4 +1,4 @@
-// PyPlotter analysis panel (right sidebar): runs built-in and user plugins on the current data,
+// π-plotter analysis panel (right sidebar): runs built-in and user plugins on the current data,
 // draws their curves and error bands over the open figure, shows the numbers, and can turn a
 // result into a figure of its own. Plugin editor included.
 'use strict';

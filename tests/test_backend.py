@@ -16,15 +16,15 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-from pyplotter.modules import clean_appledouble  # noqa: E402
+from piplotter.modules import clean_appledouble  # noqa: E402
 clean_appledouble()
 
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 import matplotlib  # noqa: E402
 
-from pyplotter import catalog, exporters, licenses, modules, plotting, readers, samples, smart  # noqa: E402
-from pyplotter.modules import ModuleManager, PipProgress, Job, version_tuple, load_registry  # noqa: E402
+from piplotter import catalog, exporters, licenses, modules, plotting, readers, samples, smart  # noqa: E402
+from piplotter.modules import ModuleManager, PipProgress, Job, version_tuple, load_registry  # noqa: E402
 
 
 def has(mod):
@@ -102,11 +102,11 @@ class TestModules(unittest.TestCase):
     def test_import_check(self):
         with tempfile.TemporaryDirectory() as tmp:
             reg = Path(tmp) / 'registry.json'
-            reg.write_text(json.dumps({'schema': 'pyplotter-registry/1', 'modules': [
+            reg.write_text(json.dumps({'schema': 'piplotter-registry/1', 'modules': [
                 {'id': 'numpy', 'pip': 'numpy', 'import': 'numpy', 'category': 'core'},
                 # installed according to pip, but the import fails
-                {'id': 'broken', 'pip': 'numpy', 'import': 'pyplotter_no_such_module', 'category': 'core'},
-                {'id': 'absent', 'pip': 'pyplotter-no-such-dist', 'import': 'x', 'category': 'core'},
+                {'id': 'broken', 'pip': 'numpy', 'import': 'piplotter_no_such_module', 'category': 'core'},
+                {'id': 'absent', 'pip': 'piplotter-no-such-dist', 'import': 'x', 'category': 'core'},
             ]}), encoding='utf-8')
             mm = ModuleManager(registry_path=reg, state_dir=tmp, online=False)
             mm.verify_async()
@@ -237,7 +237,7 @@ class TestUserModules(unittest.TestCase):
             self.assertEqual(mm.calls[-1], ['install', '--progress-bar', 'raw', '--upgrade-strategy', 'only-if-needed',
                                             'propkg==1.0'])         # the version reviewed, as one argument
             saved = json.loads((Path(tmp) / 'user-modules.json').read_text(encoding='utf-8'))
-            self.assertEqual(saved['schema'], 'pyplotter-user-modules/1')
+            self.assertEqual(saved['schema'], 'piplotter-user-modules/1')
             rec = saved['modules'][0]
             self.assertEqual((rec['pip'], rec['version'], rec['status'], rec['accepted']), ('propkg', '1.0', 'proprietary', True))
             self.assertEqual([p['name'] for p in rec['packages']], ['propkg', 'helper'])
@@ -306,14 +306,14 @@ class TestUserModules(unittest.TestCase):
             self.assertEqual(mm2.unusable(['propkg'], []), [['propkg', broken['error']]])
 
     def test_integration_plugins(self):
-        from pyplotter import plugins
+        from piplotter import plugins
         with tempfile.TemporaryDirectory() as tmp:
             pm = plugins.PluginManager(user_dir=tmp)
             made = pm.create_integration('uvvispy', 'uvvispy')
             self.assertEqual(made, {'file': 'uvvispy_tools.py', 'errors': []})
             p = pm.plugins['uvvispy_tools']
             self.assertEqual((p['requires'], p['source']), (['uvvispy'], 'user'))
-            self.assertIn('uvvispy', p['imports'])                   # imported inside run(): PyPlotter still starts
+            self.assertIn('uvvispy', p['imports'])                   # imported inside run(): π-plotter still starts
             self.assertEqual(pm.create_integration('uvvispy', 'uvvispy')['file'], 'uvvispy_tools_2.py')
             self.assertEqual(pm.create_integration('3d.Tools', 'tools3d')['file'], 'm_3d_tools_tools.py')
             for bad in (('../x', 'x'), ('x', 'not-an-import'), ('', 'x')):
@@ -340,7 +340,7 @@ class TestUserModules(unittest.TestCase):
 
     def test_tampered_record_is_ignored(self):
         with tempfile.TemporaryDirectory() as tmp:
-            (Path(tmp) / 'user-modules.json').write_text(json.dumps({'schema': 'pyplotter-user-modules/1', 'modules': [
+            (Path(tmp) / 'user-modules.json').write_text(json.dumps({'schema': 'piplotter-user-modules/1', 'modules': [
                 {'pip': '--index-url=http://evil.example'}, {'pip': 'fine-name', 'version': '1'}]}), encoding='utf-8')
             mm = ModuleManager(state_dir=tmp, online=False)
             self.assertEqual(list(mm.user), ['fine-name'])
@@ -349,12 +349,12 @@ class TestUserModules(unittest.TestCase):
         """A user's module whose top level imports but whose parts do not is not reported as working."""
         packages = {
             # like uvvispy: an __init__ with only a docstring, every part needs a module that is missing
-            'ppempty': {'__init__': '"""Docs only."""', 'io': 'import pyplotter_gone', 'plotting': 'import pyplotter_gone'},
+            'ppempty': {'__init__': '"""Docs only."""', 'io': 'import piplotter_gone', 'plotting': 'import piplotter_gone'},
             # the main code works, one optional part needs a module that is not installed
-            'pppart': {'__init__': 'def f():\n    return 1', 'qt': 'import pyplotter_no_qt', 'core': 'X = 1',
+            'pppart': {'__init__': 'def f():\n    return 1', 'qt': 'import piplotter_no_qt', 'core': 'X = 1',
                        'more': 'Y = 2'},
             # parts that print, tests and private modules (not checked)
-            'ppfine': {'__init__': '', 'a': 'print("PYPLOTTER-RESULT {}")', 'tests': 'raise RuntimeError',
+            'ppfine': {'__init__': '', 'a': 'print("PIPLOTTER-RESULT {}")', 'tests': 'raise RuntimeError',
                        '_private': 'raise RuntimeError'},
             # Python dies while importing a part
             'ppcrash': {'__init__': '', 'boom': 'import os\nos._exit(3)'},
@@ -376,7 +376,7 @@ class TestUserModules(unittest.TestCase):
             self.assertFalse(r['ppempty']['ok'])
             self.assertEqual(r['ppempty']['parts'], 2)
             self.assertEqual([n for n, _ in r['ppempty']['failed']], ['ppempty.io', 'ppempty.plotting'])
-            self.assertIn("No module named 'pyplotter_gone'", r['ppempty']['error'])
+            self.assertIn("No module named 'piplotter_gone'", r['ppempty']['error'])
             self.assertTrue(r['pppart']['ok'])
             self.assertEqual(r['pppart']['parts'], 4)                       # 3 submodules + the top level
             self.assertEqual([n for n, _ in r['pppart']['failed']], ['pppart.qt'])
@@ -819,13 +819,13 @@ class TestPlotting(unittest.TestCase):
         self.assertLess(len(quote(json.dumps(info['series'], ensure_ascii=False))), 64 * 1024)
 
     def test_download_name_header(self):
-        from pyplotter.server import content_disposition
+        from piplotter.server import content_disposition
         value = content_disposition('Spettro_Δ_α.pdf')
         value.encode('latin-1')                                    # headers must be Latin-1
         self.assertIn("filename*=UTF-8''Spettro_%CE%94_%CE%B1.pdf", value)
 
     def test_datasets_dropped_least_recently_used(self):
-        from pyplotter import server
+        from piplotter import server
         with tempfile.TemporaryDirectory() as tmp:
             app = server.App('t' * 32, tmp, ModuleManager(state_dir=tmp, online=False), 10 ** 9)
             main = app._register(pd.DataFrame({'a': [1.0, 2.0]}), 'main', {'sample': 'x'}, {})['dataset_id']
@@ -1069,7 +1069,7 @@ class TestPlotting(unittest.TestCase):
             self.assertGreater(lo, hi, axes)                                   # still top to bottom
 
     def test_preview_of_a_wide_table(self):
-        from pyplotter import server
+        from piplotter import server
         with tempfile.TemporaryDirectory() as tmp:
             app = server.App('t' * 32, tmp, ModuleManager(state_dir=tmp, online=False), 10 ** 9)
             df = pd.DataFrame(np.zeros((3, 500)), columns=[f'c{i}' for i in range(500)])

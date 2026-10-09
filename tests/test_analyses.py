@@ -7,10 +7,10 @@ import tempfile
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from pyplotter.modules import clean_appledouble  # noqa: E402
+from piplotter.modules import clean_appledouble  # noqa: E402
 clean_appledouble()
 
-from pyplotter import plotting, plugins, samples  # noqa: E402
+from piplotter import plotting, plugins, samples  # noqa: E402
 
 
 def has(mod):
@@ -208,7 +208,7 @@ class TestBuiltins(unittest.TestCase):
         self.assertTrue(any('No strong band at 1850–1650' in t for t in res.texts))
 
     def test_ir_assignment_options(self):
-        from pyplotter.analyses import ir_assign
+        from piplotter.analyses import ir_assign
         everything, chon = ir_assign.bands('all', 'all'), ir_assign.bands('all', 'chon')
         self.assertGreater(len(everything), len(chon))
         self.assertFalse({b['family'] for b in chon} & ir_assign.HETEROATOM)
@@ -231,7 +231,7 @@ class TestBuiltins(unittest.TestCase):
 
     def test_baseline_methods_follow_the_background(self):
         import numpy as np
-        from pyplotter import baselines
+        from piplotter import baselines
         x, y, background, peaks = self.spectrum()
         anchors = '\n'.join(str(v) for v in (0, 120, 380, 650, 900, 1000))
         for p, tol in [({'baseline': 'arpls', 'bl_stiffness': 6}, 0.03), ({'baseline': 'asls', 'bl_stiffness': 6}, 0.05),
@@ -257,7 +257,7 @@ class TestBuiltins(unittest.TestCase):
         for bad in ('100, 200', '1 2 3', 'abc', '1,000.5'):
             with self.subTest(text=bad), self.assertRaises(plugins.PluginError):
                 plugins.parse_points(bad)
-        from pyplotter import baselines
+        from piplotter import baselines
         import numpy as np
         x = np.linspace(0, 10, 101)
         b = baselines.estimate(x, x * 0 + 5, {'baseline': 'points', 'bl_anchor': 'given',
@@ -476,8 +476,8 @@ class TestBuiltins(unittest.TestCase):
         import zipfile as _zip
         import numpy as np
         import pandas as pd
-        from pyplotter import exporters
-        from pyplotter.modules import load_registry
+        from piplotter import exporters
+        from piplotter.modules import load_registry
         rng = np.random.default_rng(3)
         x = np.linspace(0, 40, 60)
         sig = np.full(x.size, 0.03)
@@ -580,8 +580,8 @@ class TestPersistentToken(unittest.TestCase):
         root = Path(__file__).resolve().parent.parent
         with tempfile.TemporaryDirectory() as home:
             code = ('import os, sys, runpy; sys.argv=["x"]; '
-                    'g = runpy.run_path(r"%s", run_name="not_main"); print(g["persistent_token"]())' % (root / 'start_pyplotter.py'))
-            env = dict(os.environ, PYPLOTTER_HOME=home, PYPLOTTER_NO_VENV='1')
+                    'g = runpy.run_path(r"%s", run_name="not_main"); print(g["persistent_token"]())' % (root / 'start_piplotter.py'))
+            env = dict(os.environ, PIPLOTTER_HOME=home, PIPLOTTER_NO_VENV='1')
             a = subprocess.run([sys.executable, '-c', code], env=env, capture_output=True, text=True).stdout.strip()
             b = subprocess.run([sys.executable, '-c', code], env=env, capture_output=True, text=True).stdout.strip()
             self.assertTrue(len(a) >= 32)
