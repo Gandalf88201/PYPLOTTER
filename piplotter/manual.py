@@ -167,28 +167,39 @@ def render_body(md):
     return '\n'.join(out), toc
 
 
+LANGS = ('en', 'it')
+FILES = {'en': 'MANUAL.md', 'it': 'MANUAL.it.md'}
+TEXT = {      # the words of the page around the manual (the manual itself is in its own file)
+    'en': {'title': 'User manual', 'back': '← Back to the program', 'contents': 'Contents',
+           'missing': '# User manual\n\nThe manual file (manual/MANUAL.md) was not found.'},
+    'it': {'title': 'Manuale d’uso', 'back': '← Torna al programma', 'contents': 'Indice',
+           'missing': '# Manuale d’uso\n\nIl file del manuale (manual/MANUAL.it.md) non è stato trovato.'},
+}
+
 PAGE = '''<!doctype html>
-<html lang="en">
+<html lang="{lang}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{name} · User manual</title>
+<title>{name} · {title}</title>
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/static/manual.css">
 <script src="/static/theme.js"></script>
+<script src="/static/manual.js" defer></script>
 </head>
-<body>
+<body data-lang="{lang}" data-explicit="{explicit}">
 <header class="m-top">
-  <a class="m-brand" href="/manual">
+  <a class="m-brand" href="/manual?lang={lang}">
     <svg viewBox="0 0 32 32" width="26" height="26" aria-hidden="true"><rect x="1.5" y="1.5" width="29" height="29" rx="7" fill="var(--accent)"/><path d="M7 23 L12 15 L16 19 L25 8" fill="none" stroke="var(--on-accent)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="15" r="1.9" fill="var(--on-accent)"/><circle cx="16" cy="19" r="1.9" fill="var(--on-accent)"/></svg>
     <span class="m-name"><b>{name}</b><small>{author}</small></span>
   </a>
-  <span class="m-title">User manual <span class="m-ver">v{version}</span></span>
-  <a class="m-back" href="/">← Back to the program</a>
+  <span class="m-title">{title} <span class="m-ver">v{version}</span></span>
+  <nav class="m-lang" aria-label="Language">{langs}</nav>
+  <a class="m-back" href="/">{back}</a>
 </header>
 <div class="m-layout">
-  <nav class="m-toc" aria-label="Contents">
-    <div class="m-toc-title">Contents</div>
+  <nav class="m-toc" aria-label="{contents}">
+    <div class="m-toc-title">{contents}</div>
 {toc}
   </nav>
   <main class="m-body">
@@ -201,15 +212,30 @@ PAGE = '''<!doctype html>
 '''
 
 
-def manual_text():
-    path = MANUAL_DIR / 'MANUAL.md'
-    return path.read_text(encoding='utf-8') if path.is_file() else '# User manual\n\nThe manual file (manual/MANUAL.md) was not found.'
+def pick_language(value):
+    """'en' or 'it' from a ?lang= value (anything else: English)."""
+    value = (value or '').strip().lower()[:2]
+    return value if value in LANGS else 'en'
 
 
-def render_page(md=None):
-    body, toc = render_body(manual_text() if md is None else md)
+def manual_text(lang='en'):
+    lang = pick_language(lang)
+    path = MANUAL_DIR / FILES[lang]
+    return path.read_text(encoding='utf-8') if path.is_file() else TEXT[lang]['missing']
+
+
+def render_page(md=None, lang='en', explicit=True):
+    """The manual as a page. lang: 'en' or 'it'; explicit False (no ?lang= in the address) lets manual.js
+    switch to the language the program is set to."""
+    lang = pick_language(lang)
+    body, toc = render_body(manual_text(lang) if md is None else md)
     items = ''.join(f'    <a class="l{lvl}" href="#{hid}">{html.escape(text)}</a>\n' for lvl, hid, text in toc)
-    return PAGE.format(name=NAME, author=AUTHOR, version=__version__, toc=items.rstrip('\n'), body=body)
+    langs = ''.join('<a href="/manual?lang=%s"%s>%s</a>' % (code, ' class="on" aria-current="true"' if code == lang else '', code.upper())
+                    for code in LANGS)
+    t = TEXT[lang]
+    return PAGE.format(lang=lang, explicit='1' if explicit else '0', name=NAME, author=AUTHOR, version=__version__,
+                       title=t['title'], back=t['back'], contents=t['contents'], langs=langs,
+                       toc=items.rstrip('\n'), body=body)
 
 
 def png_size(path):

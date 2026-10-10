@@ -3,7 +3,7 @@
 window.I18N = {
   en: {
     'modules.button': 'Modules', 'modules.title': 'Python modules', 'about.title': 'About & references',
-    'manual.button': 'Manual', 'manual.title': 'User manual: every step of an analysis, with pictures (opens in a new tab)',
+    'manual.button': 'Manual', 'manual.title': 'User manual: every step of an analysis, with pictures (opens in a new tab, in English)',
     'theme.toggle': 'Light / dark mode',
     'restart.message': 'Updated modules take effect after restarting the Python service.', 'restart.button': 'Restart now',
     'restart.wait': 'Restarting…', 'restart.done': 'π-plotter restarted.',
@@ -177,7 +177,7 @@ window.I18N = {
   },
   it: {
     'modules.button': 'Moduli', 'modules.title': 'Moduli Python', 'about.title': 'Informazioni e riferimenti',
-    'manual.button': 'Manuale', 'manual.title': 'Manuale d’uso: ogni passaggio di un’analisi, con le immagini (si apre in una nuova scheda, in inglese)',
+    'manual.button': 'Manuale', 'manual.title': 'Manuale d’uso: ogni passaggio di un’analisi, con le immagini (si apre in una nuova scheda, in italiano)',
     'theme.toggle': 'Modalità chiara / scura',
     'restart.message': 'I moduli aggiornati saranno attivi dopo il riavvio del servizio Python.', 'restart.button': 'Riavvia ora',
     'restart.wait': 'Riavvio in corso…', 'restart.done': 'π-plotter riavviato.',

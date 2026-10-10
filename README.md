@@ -8,7 +8,8 @@ Bilingual (English / Italiano), light and dark mode. MIT licence.
 
 **New: a built-in user manual** (button *Manual* in the top bar, or `/manual`) walks through every step —
 opening data, plotting, styling, fitting, peaks, statistics, export — with pictures taken from the
-program. Its text is [manual/MANUAL.md](manual/MANUAL.md).
+program, **in English and in Italian** (it opens in the language of the program; same pictures). Its texts are
+[manual/MANUAL.md](manual/MANUAL.md) and [manual/MANUAL.it.md](manual/MANUAL.it.md).
 
 *Formerly PyPlotter (renamed in 0.2.0: the name was already in use). Your plugins and module list in
 `~/.pyplotter` are copied to `~/.piplotter` the first time, and old plugins that import `pyplotter` keep working.*
@@ -187,7 +188,8 @@ licence and [REFERENCES.md](REFERENCES.md) for what to cite (also shown in the a
 .venv/bin/python -m unittest discover -s tests
 ```
 
-The manual is `manual/MANUAL.md` plus `manual/img/*.png`, rendered by `piplotter/manual.py`. After an interface change,
+The manual is `manual/MANUAL.md` (English) and `manual/MANUAL.it.md` (Italian; keep the same sections and pictures: a test
+checks it) plus `manual/img/*.png`, rendered by `piplotter/manual.py`. After an interface change,
 redraw the pictures with `python tools/make_manual_images.py` (needs `pip install playwright` and Chrome; see the last
 section of the manual).
 
@@ -204,7 +206,7 @@ API, `web/` the interface.
 Matplotlib, NumPy, pandas e moduli facoltativi installati quando servono. Interfaccia in italiano e
 inglese, modalità chiara e scura. Licenza MIT.
 
-**Manuale.** Il pulsante *Manuale* in alto apre il manuale d'uso (in inglese) con tutti i passaggi e le immagini.
+**Manuale.** Il pulsante *Manuale* in alto apre il manuale d'uso (in italiano o in inglese, come il programma) con tutti i passaggi e le immagini.
 Il programma si chiamava PyPlotter: i tuoi plugin e l'elenco dei moduli in `~/.pyplotter` vengono copiati in `~/.piplotter`.
 
 **Avvio.** Installa Python 3.10 o successivo, poi fai doppio clic su `start_piplotter.command`

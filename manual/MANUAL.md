@@ -4,7 +4,7 @@
 
 π-plotter turns almost any data file into a publication-quality figure and analyses it with open-source Python modules (NumPy, SciPy, statsmodels, Matplotlib…), all in your browser and all on your own computer. This manual follows the order in which you work: **open the data → choose what to plot → style the figure → analyse (fit, peaks, statistics…) → export**. Every step has a picture taken from the program itself.
 
-> **Tip:** the manual is available at any time from the **Manual** button in the top bar. It opens in a new tab, so you can keep it beside the program. The interface itself is in English and Italian (**EN / IT** in the top bar); this manual is in English.
+> **Tip:** the manual is available at any time from the **Manual** button in the top bar. It opens in a new tab, so you can keep it beside the program. The interface and the manual are in English and Italian (**EN / IT** in the top bar): the manual opens in the language of the program, and you can change it at the top right of the manual. The pictures are the same in both languages and show the English interface.
 
 ## 1. Before you start
 
@@ -436,9 +436,9 @@ Errors are also printed in the terminal window.
 
 ## 9. About this manual
 
-This manual is part of the program: the text is the file `manual/MANUAL.md`, the pictures are in `manual/img/`, and the program shows them at **Manual** (`/manual`).
+This manual is part of the program: the text is the files `manual/MANUAL.md` (English) and `manual/MANUAL.it.md` (Italian), the pictures are in `manual/img/` and **are shared by the two languages**, and the program shows them at **Manual** (`/manual`, or `/manual?lang=it` for Italian).
 
-**To update the text**, edit `manual/MANUAL.md`. It uses a small subset of Markdown: headings (`##`, `###`), paragraphs, lists, tables, `> **Tip:**` / `**Note:**` / `**Warning:**` / `**Important:**` boxes, `![caption](img/name.png "long caption")` for pictures, `**bold**`, `*italic*`, `` `code` `` and `[links](url)`. Restart is not needed: reload the page.
+**To update the text**, edit both files and keep the same headings and the same pictures in the same order (a test checks that the two versions match). They use a small subset of Markdown: headings (`##`, `###`), paragraphs, lists, tables, `> **Tip:**` / `**Note:**` / `**Warning:**` / `**Important:**` boxes, `![caption](img/name.png "long caption")` for pictures, `**bold**`, `*italic*`, `` `code` `` and `[links](url)`. Restart is not needed: reload the page.
 
 **To redraw the pictures** after the interface or an analysis changes:
 
@@ -447,12 +447,13 @@ pip install playwright
 .venv/bin/python tools/make_manual_images.py
 ```
 
-The tool starts its own copy of π-plotter (with a temporary state folder, so your plugins and modules are not touched), drives it in a headless Chrome in English and in light mode, and saves every picture. `--only fit,ir` redraws just those; to add a picture write a function with `@shot('name')` in the tool and refer to `img/name.png` here. The numbers in the text that come from the examples (for instance τ ≈ 14 min) should be checked after redrawing.
+The tool starts its own copy of π-plotter (with a temporary state folder, so your plugins and modules are not touched), drives it in a headless Chrome in English and in light mode, and saves every picture. `--only fit,ir` redraws just those; to add a picture write a function with `@shot('name')` in the tool and refer to `img/name.png` in both manuals. The numbers in the text that come from the examples (for instance τ ≈ 14 min) should be checked after redrawing.
 
 ### Revision history
 
 | Version | Changes to the manual |
 |---|---|
+| 0.2.3 | Italian edition (`MANUAL.it.md`) with the same pictures; language switch in the manual. |
 | 0.2.2 | Baseline: the corrected spectrum is drawn alone (the spectrum before the correction on request); transmittance is divided by its baseline (T / T₀, stays in %). |
 | 0.2.1 | Baseline: the new default (straight line under the signal), peaks pointing down (transmittance), clicked anchor points keep their y. |
 | 0.2.0 | First edition: starting, data, plotting, figure style, zoom and 3D, analyses (fitting, kinetics, baseline and peaks, IR assignment, simulations, statistics), export, plugins and modules. |

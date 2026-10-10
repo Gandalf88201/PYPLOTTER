@@ -57,37 +57,70 @@ class TestManualReader(unittest.TestCase):
         self.assertIn('href="#a"', page)
 
 
+def prose(text):
+    """The manual without `code` (an example of the syntax in code is not a picture)."""
+    return re.sub(r'`[^`\n]*`', '', text)
+
+
 class TestManualFile(unittest.TestCase):
     def setUp(self):
-        self.text = (manual.MANUAL_DIR / 'MANUAL.md').read_text(encoding='utf-8')
-        self.prose = re.sub(r'`[^`\n]*`', '', self.text)         # an example of the syntax in `code` is not a picture
+        self.texts = {lang: (manual.MANUAL_DIR / name).read_text(encoding='utf-8') for lang, name in manual.FILES.items()}
 
     def test_every_picture_exists(self):
-        names = set(re.findall(r'!\[[^\]]*\]\(img/([\w.\-]+)', self.prose))
-        self.assertGreater(len(names), 20)
-        missing = sorted(n for n in names if manual.image_path(n) is None)
-        self.assertEqual([], missing)
+        for lang, text in self.texts.items():
+            names = set(re.findall(r'!\[[^\]]*\]\(img/([\w.\-]+)', prose(text)))
+            self.assertGreater(len(names), 20, lang)
+            self.assertEqual([], sorted(n for n in names if manual.image_path(n) is None), lang)
 
     def test_every_picture_is_used_and_is_a_png_of_a_sensible_size(self):
-        used = set(re.findall(r'\(img/([\w.\-]+)', self.prose))
-        for path in (manual.MANUAL_DIR / 'img').glob('*.png'):
-            if path.name.startswith('._'):
-                continue
-            self.assertIn(path.name, used, f'{path.name} is not used in MANUAL.md')
-            w, h = manual.png_size(path)
-            self.assertTrue(200 < w < 4000 and 100 < h < 4000, (path.name, w, h))
+        for lang, text in self.texts.items():
+            used = set(re.findall(r'\(img/([\w.\-]+)', prose(text)))
+            for path in (manual.MANUAL_DIR / 'img').glob('*.png'):
+                if path.name.startswith('._'):
+                    continue
+                self.assertIn(path.name, used, f'{path.name} is not used in {manual.FILES[lang]}')
+                w, h = manual.png_size(path)
+                self.assertTrue(200 < w < 4000 and 100 < h < 4000, (path.name, w, h))
+
+    def test_the_two_languages_match(self):
+        """Same pictures in the same order, same sections: a change made in one language is made in the other."""
+        pics = {lang: re.findall(r'!\[[^\]]*\]\(img/([\w.\-]+)', prose(text)) for lang, text in self.texts.items()}
+        self.assertEqual(pics['en'], pics['it'])
+        heads = {lang: [(m.group(1), m.group(2).split(' ')[0]) for m in re.finditer(r'^(#{1,4}) (.+)$', prose(text), re.M)]
+                 for lang, text in self.texts.items()}
+        number = lambda lst: [(h, n) for h, n in lst if re.fullmatch(r'\d+(\.\d+)*\.?', n)]
+        self.assertEqual(number(heads['en']), number(heads['it']))                 # 1., 1.1, 2.3 … the same everywhere
+        self.assertEqual(len(heads['en']), len(heads['it']))
+        body = {lang: re.split(r'^### (?:Revision history|Storia delle revisioni)', text, flags=re.M)[0] for lang, text in self.texts.items()}
+        self.assertEqual(body['en'].count('\n|'), body['it'].count('\n|'))           # same tables (the history aside)
+        self.assertEqual(body['en'].count('\n> **') + 1, body['it'].count('\n> **'))   # same boxes; the Italian one adds a note on the pictures
+        self.assertEqual(self.texts['it'].count('```'), self.texts['en'].count('```'))
 
     def test_inner_links_point_to_headings(self):
-        body, toc = manual.render_body(self.text)
-        ids = set(re.findall(r'<h[1-4] id="([^"]+)"', body))
-        for target in re.findall(r'href="#([^"]+)"', body):
-            if target not in {'#'}:
-                self.assertIn(target, ids)
+        for lang, text in self.texts.items():
+            body, toc = manual.render_body(text)
+            ids = set(re.findall(r'<h[1-4] id="([^"]+)"', body))
+            for target in re.findall(r'href="#([^"]+)"', body):
+                if target not in {'#'}:
+                    self.assertIn(target, ids, lang)
 
     def test_the_whole_manual_renders(self):
         page = manual.render_page()
         self.assertIn('Revision history', page)
         self.assertGreater(page.count('<figure>'), 20)
+        it = manual.render_page(lang='it')
+        self.assertIn('Storia delle revisioni', it)
+        self.assertIn('<html lang="it">', it)
+        self.assertEqual(it.count('<figure>'), page.count('<figure>'))
+        self.assertIn('Indice', it)
+        self.assertNotIn('Revision history', it)
+
+    def test_language_is_picked_safely(self):
+        self.assertEqual('it', manual.pick_language('it'))
+        self.assertEqual('it', manual.pick_language('IT-it'))
+        self.assertEqual('en', manual.pick_language('fr'))
+        self.assertEqual('en', manual.pick_language(None))
+        self.assertEqual('en', manual.pick_language('../../etc/passwd'))
 
     def test_image_names_are_checked(self):
         self.assertIsNone(manual.image_path('../MANUAL.md'))
@@ -112,10 +145,20 @@ class TestServedManual(unittest.TestCase):
                     with self.assertRaises(urllib.error.HTTPError) as cm:
                         urllib.request.urlopen(url + bad)
                     self.assertEqual(404, cm.exception.code, bad)
+                it = urllib.request.urlopen(url + 'manual?lang=it').read().decode('utf-8')
+                self.assertIn('Manuale d’uso', it)
+                self.assertIn('data-explicit="1"', it)
+                self.assertIn('href="/manual?lang=en"', it)
+                self.assertIn('data-explicit="0"', page)                        # no ?lang=: manual.js follows the program
+                self.assertIn('Questo manuale fa parte del programma', it)
+                weird = urllib.request.urlopen(url + 'manual?lang=%3Cscript%3E').read().decode('utf-8')
+                self.assertIn('<html lang="en">', weird)
+                self.assertEqual(200, urllib.request.urlopen(url + 'static/manual.js').status)
                 index = urllib.request.urlopen(url).read().decode('utf-8')
                 self.assertIn('<title>π-plotter · Dr. T. Francese</title>', index)
                 self.assertIn('class="brand-author">Dr. T. Francese<', index)
                 self.assertIn('href="/manual"', index)
+                self.assertIn("'/manual?lang=' + state.lang", urllib.request.urlopen(url + 'static/app.js').read().decode('utf-8'))
                 self.assertIn('/static/manual.css', page)
                 self.assertEqual(200, urllib.request.urlopen(url + 'static/manual.css').status)
             finally:

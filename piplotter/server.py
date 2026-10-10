@@ -18,7 +18,7 @@ import sys
 import threading
 import time
 import traceback
-from urllib.parse import quote, unquote, urlsplit
+from urllib.parse import parse_qs, quote, unquote, urlsplit
 
 from . import AUTHOR, NAME, __version__, catalog, manual
 from .modules import MissingModules, MissingUserModules, ModuleManager, canonical, clean_appledouble
@@ -522,7 +522,9 @@ def make_handler(app, port):
                                        "style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; "
                                        "object-src 'none'; base-uri 'none'; frame-ancestors 'none'"})
                 if path in ('/manual', '/manual/'):
-                    return self._send(200, manual.render_page().encode('utf-8'), MIME['.html'],
+                    query = parse_qs(urlsplit(self.path).query)
+                    page = manual.render_page(lang=(query.get('lang') or [''])[0], explicit='lang' in query)
+                    return self._send(200, page.encode('utf-8'), MIME['.html'],
                                       {'Content-Security-Policy': "default-src 'self'; img-src 'self' data:; style-src 'self'; "
                                        "script-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"})
                 if path.startswith('/manual/img/'):

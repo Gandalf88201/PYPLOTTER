@@ -26,7 +26,10 @@ a { color: var(--accent); }
 .m-name small { font-size: 11px; color: var(--muted); font-weight: 500; }
 .m-title { font-weight: 600; color: var(--muted); }
 .m-ver { font-weight: 500; font-size: 13px; margin-left: 4px; }
-.m-back { margin-left: auto; font-size: 14px; text-decoration: none; }
+.m-lang { margin-left: auto; display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.m-lang a { padding: 4px 10px; font-size: 12px; font-weight: 600; text-decoration: none; color: var(--muted); }
+.m-lang a.on { background: var(--accent); color: var(--on-accent); }
+.m-back { margin-left: 0; font-size: 14px; text-decoration: none; }
 .m-back:hover { text-decoration: underline; }
 
 .m-layout { display: grid; grid-template-columns: 270px minmax(0, 1fr); gap: 0; max-width: 1280px; margin: 0 auto; }

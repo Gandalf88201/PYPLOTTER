@@ -1,3 +1,28 @@
+# π-plotter 0.2.3
+
+**The user manual in Italian too.**
+*Italiano più sotto.*
+
+## What's new
+- The built-in manual is now available in **Italian** as well as English, with **the same pictures** (they show the
+  English interface). The **Manual** button opens it in the language the program is set to; **EN / IT** at the top
+  right of the manual switches it, and `/manual?lang=it` opens the Italian one directly.
+- The Italian text (`manual/MANUAL.it.md`) uses the names of the Italian interface for buttons and menus, and gives the
+  English name from the pictures in brackets where it helps.
+- A test checks that the two manuals keep the same sections, pictures, tables and boxes, so they stay in step when the
+  manual is updated. The page of the manual is translated too (contents, back link).
+
+## Italiano
+- Il manuale integrato ora c’è anche **in italiano**, con **le stesse immagini** (che mostrano l’interfaccia in inglese).
+  Il pulsante **Manuale** lo apre nella lingua del programma; **EN / IT** in alto a destra nel manuale la cambia, e
+  `/manual?lang=it` apre direttamente quello italiano.
+- Il testo italiano (`manual/MANUAL.it.md`) usa i nomi dell’interfaccia italiana per pulsanti e menu e, dove serve,
+  riporta tra parentesi il nome inglese visibile nelle immagini.
+- Un test controlla che i due manuali abbiano le stesse sezioni, immagini, tabelle e riquadri, così restano allineati
+  quando si aggiorna il manuale.
+
+---
+
 # π-plotter 0.2.2
 
 **The corrected spectrum on its own, and transmittance divided by its baseline.**
